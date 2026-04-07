@@ -1,0 +1,51 @@
+name: 01-intake
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: "Feature ID, e.g. FEAT-0001"
+        required: true
+      raw_requirement:
+        description: "One-line requirement"
+        required: true
+
+jobs:
+  generate-spec:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema pyyaml openai
+
+      - name: Generate spec from requirement
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          FEATURE_ID: ${{ github.event.inputs.feature_id }}
+          RAW_REQUIREMENT: ${{ github.event.inputs.raw_requirement }}
+        run: |
+          python scripts/generate_spec.py
+
+      - name: Validate spec
+        run: |
+          python scripts/validate_spec.py specs/intake/${{ github.event.inputs.feature_id }}.json specs/schema/feature-spec.schema.json
+
+      - name: Commit generated spec
+        run: |
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git add specs/intake/
+          git commit -m "chore: generate spec for ${{ github.event.inputs.feature_id }}" || echo "No changes"
+          git push

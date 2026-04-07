@@ -1,0 +1,34 @@
+name: 05-auto-fix
+
+on:
+  workflow_run:
+    workflows: ["04-verify"]
+    types: [completed]
+
+jobs:
+  autofix:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Attempt CI failure fix
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+        run: |
+          codex exec "
+          Read the failing workflow context and repository.
+          Identify the root cause.
+          Fix only the minimum required code/tests/config.
+          Do not suppress tests.
+          Do not disable checks.
+          "

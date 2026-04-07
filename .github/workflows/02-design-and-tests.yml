@@ -1,0 +1,38 @@
+name: 02-design-and-tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        required: true
+
+jobs:
+  design:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare prompt artifacts
+        run: |
+          mkdir -p out
+
+      - name: Run design agents
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FEATURE_ID: ${{ github.event.inputs.feature_id }}
+        run: |
+          ./scripts/run_design_agents.sh "$FEATURE_ID"
+
+      - name: Commit artifacts
+        run: |
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git add specs/prd specs/architecture specs/test-plan specs/test-cases
+          git commit -m "docs: generate design and tests for ${{ github.event.inputs.feature_id }}" || echo "No changes"
+          git push
+
+

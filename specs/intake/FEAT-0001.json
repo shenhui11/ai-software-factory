@@ -1,0 +1,73 @@
+{
+  "feature_id": "FEAT-0001",
+  "title": "Excel 上传并生成分析报表",
+  "summary": "企业用户上传 Excel 后，系统自动校验、清洗并生成可查看的分析报表。",
+  "business_goal": "缩短业务人员从原始表格到可用分析结果的处理时间。",
+  "actors": ["admin", "analyst", "viewer"],
+  "scope": {
+    "in_scope": [
+      "Excel 上传",
+      "字段校验",
+      "基础清洗",
+      "报表生成",
+      "角色权限控制"
+    ],
+    "out_of_scope": [
+      "复杂 BI 可视化编辑器",
+      "第三方 ERP 自动同步"
+    ]
+  },
+  "acceptance_criteria": [
+    "admin 能上传 xlsx 文件并看到处理状态",
+    "analyst 能查看清洗后的数据摘要",
+    "viewer 只能查看授权范围内的最终报表",
+    "无效列或空关键字段会给出明确错误提示"
+  ],
+  "non_functional_requirements": {
+    "security": [
+      "租户隔离",
+      "接口鉴权",
+      "审计日志"
+    ],
+    "performance": [
+      "50MB 文件在 2 分钟内完成处理"
+    ],
+    "reliability": [
+      "任务失败可重试",
+      "处理状态可追踪"
+    ],
+    "observability": [
+      "记录上传、校验、清洗、生成报表链路日志"
+    ]
+  },
+  "constraints": [
+    "优先使用 PostgreSQL",
+    "Web 前端使用 React/Next.js",
+    "后端使用 FastAPI"
+  ],
+  "dependencies": [
+    "对象存储",
+    "任务队列",
+    "PostgreSQL"
+  ],
+  "deliverables": [
+    "上传 API",
+    "清洗服务",
+    "报表页面",
+    "权限中间件",
+    "测试用例"
+  ],
+  "test_strategy": {
+    "unit": [
+      "清洗规则函数",
+      "权限判断逻辑"
+    ],
+    "integration": [
+      "上传接口与任务队列联动",
+      "数据库持久化"
+    ],
+    "e2e": [
+      "登录-上传-查看报表完整链路"
+    ]
+  }
+}

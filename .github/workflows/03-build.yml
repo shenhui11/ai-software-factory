@@ -1,0 +1,64 @@
+name: 03-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        required: true
+
+jobs:
+  build-with-codex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install project deps
+        run: |
+          npm ci || true
+          pip install -r requirements.txt || true
+
+      - name: Install Codex CLI
+        run: |
+          npm install -g @openai/codex
+
+      - name: Run Codex builder
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          FEATURE_ID: ${{ github.event.inputs.feature_id }}
+        run: |
+          codex exec "
+          Read specs/intake/${FEATURE_ID}.json,
+               specs/prd/${FEATURE_ID}.md,
+               specs/architecture/${FEATURE_ID}.md,
+               specs/test-plan/${FEATURE_ID}.md,
+               specs/test-cases/${FEATURE_ID}.yaml.
+          Implement the feature with tests.
+          Only modify apps/, packages/, tests/, and docs/ when necessary.
+          Do not hardcode secrets.
+          "
+
+      - name: Run unit tests
+        run: |
+          make test-unit
+
+      - name: Commit changes
+        run: |
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git checkout -b feat/${{ github.event.inputs.feature_id }} || git checkout feat/${{ github.event.inputs.feature_id }}
+          git add .
+          git commit -m "feat: implement ${{ github.event.inputs.feature_id }}" || echo "No changes"
+          git push --set-upstream origin feat/${{ github.event.inputs.feature_id }}
+
+
+
