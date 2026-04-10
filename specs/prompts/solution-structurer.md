@@ -36,5 +36,9 @@
 - 不允许自行新增 brainstorm 中不存在的方案
 - 所有字段必须尽量具体，不要空泛
 
-输出文件：
+你必须创建或覆盖以下文件：
 - specs/scoring/{feature_id}.json
+
+输出必须是合法 JSON。
+如果没有真正写入该文件，不允许结束任务。
+禁止修改其他 feature_id 的 scoring 文件。

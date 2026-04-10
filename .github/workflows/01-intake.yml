@@ -39,11 +39,6 @@ jobs:
       - name: 安装 Codex CLI
         run: npm install -g @openai/codex
 
-      - name: 安装 Python 依赖
-        run: |
-          python -m pip install --upgrade pip
-          pip install jsonschema
-
       - name: 生成 Codex 配置
         run: |
           mkdir -p ~/.codex
@@ -63,15 +58,9 @@ jobs:
         env:
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
 
-      - name: 预检查 prompt 与目录
+      - name: 准备目录
         run: |
           mkdir -p specs/brainstorm specs/scoring specs/decision specs/intake
-          test -f "specs/prompts/brainstorm.md"
-          test -f "specs/prompts/solution-structurer.md"
-          test -f "specs/prompts/scoring.md"
-          test -f "specs/prompts/decision.md"
-          test -f "scripts/generate_spec.py"
-          test -f "specs/schema/feature-spec.schema.json"
 
       - name: 执行 Brainstorm
         env:
@@ -81,6 +70,10 @@ jobs:
           printf "\n\n原始需求：%s\n" "$RAW_REQUIREMENT" >> /tmp/brainstorm.prompt
           codex exec --skip-git-repo-check "$(cat /tmp/brainstorm.prompt)"
 
+      - name: 校验 Brainstorm 输出
+        run: |
+          test -s "specs/brainstorm/${FEATURE_ID}.md"
+
       - name: 执行 Solution Structuring
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
@@ -88,12 +81,9 @@ jobs:
           sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/solution-structurer.md > /tmp/structurer.prompt
           codex exec --skip-git-repo-check "$(cat /tmp/structurer.prompt)"
 
-      - name: 执行 Scoring
-        env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+      - name: 校验 Structuring 输出
         run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/scoring.md > /tmp/scoring.prompt
-          codex exec --skip-git-repo-check "$(cat /tmp/scoring.prompt)"
+          test -s "specs/scoring/${FEATURE_ID}.json"
 
       - name: 执行 Decision
         env:
@@ -102,33 +92,22 @@ jobs:
           sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/decision.md > /tmp/decision.prompt
           codex exec --skip-git-repo-check "$(cat /tmp/decision.prompt)"
 
+      - name: 校验 Decision 输出
+        run: |
+          test -s "specs/decision/${FEATURE_ID}.md"
+
       - name: 生成 Intake JSON
         run: |
           python scripts/generate_spec.py \
             --feature_id "${FEATURE_ID}" \
             --requirement "${RAW_REQUIREMENT}"
 
-      - name: 校验输出文件
+      - name: 校验 Intake 输出
         run: |
-          test -s "specs/brainstorm/${FEATURE_ID}.md"
-          test -s "specs/scoring/${FEATURE_ID}.json"
-          test -s "specs/decision/${FEATURE_ID}.md"
           test -s "specs/intake/${FEATURE_ID}.json"
 
-      - name: 校验 Intake Schema
+      - name: 校验 Schema
         run: |
           python scripts/validate_spec.py \
             "specs/intake/${FEATURE_ID}.json" \
             "specs/schema/feature-spec.schema.json"
-
-      - name: 提交决策产物
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add \
-            "specs/brainstorm/${FEATURE_ID}.md" \
-            "specs/scoring/${FEATURE_ID}.json" \
-            "specs/decision/${FEATURE_ID}.md" \
-            "specs/intake/${FEATURE_ID}.json"
-          git diff --cached --quiet || git commit -m "docs: 生成产品决策与 intake ${FEATURE_ID}"
-          git push
