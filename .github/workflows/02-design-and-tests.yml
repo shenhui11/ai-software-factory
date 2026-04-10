@@ -1,38 +1,114 @@
-name: 02-design-and-tests
+name: 02-设计与测试设计
 
 on:
   workflow_dispatch:
     inputs:
       feature_id:
+        description: "需求编号，例如 FEAT-0001"
         required: true
+        type: string
 
 jobs:
-  design:
+  design-and-tests:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-      - name: Prepare prompt artifacts
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: 生成 Codex 配置
         run: |
-          mkdir -p out
+          mkdir -p ~/.codex
+          cat > ~/.codex/config.toml <<EOF
+          model = "gpt-5.4"
+          model_reasoning_effort = "low"
+          model_provider = "newapi"
+          approval_policy = "never"
+          sandbox_mode = "workspace-write"
 
-      - name: Run design agents
+          [model_providers.newapi]
+          name = "newapi"
+          base_url = "${CODEX_BASE_URL}"
+          wire_api = "responses"
+          env_key = "CODEX_API_KEY"
+          EOF
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          FEATURE_ID: ${{ github.event.inputs.feature_id }}
-        run: |
-          ./scripts/run_design_agents.sh "$FEATURE_ID"
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
 
-      - name: Commit artifacts
+      - name: 预检查输入文件
         run: |
-          git config user.name "Hui Shen"
-          git config user.email "295225478@qq.com"
-          git add specs/prd specs/architecture specs/test-plan specs/test-cases
-          git commit -m "docs: generate design and tests for ${{ github.event.inputs.feature_id }}" || echo "No changes"
+          test -f "specs/intake/${FEATURE_ID}.json"
+          test -f "specs/prompts/product-manager.md"
+          test -f "specs/prompts/architect.md"
+          test -f "specs/prompts/test-designer.md"
+          test -f "AGENTS.md"
+
+      - name: 执行产品设计
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/product-manager.md > /tmp/product-manager.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/product-manager.prompt)"
+
+      - name: 执行架构设计
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/architect.md > /tmp/architect.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/architect.prompt)"
+
+      - name: 执行测试设计
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/test-designer.md > /tmp/test-designer.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/test-designer.prompt)"
+
+      - name: 校验设计产物非空
+        run: |
+          test -s "specs/prd/${FEATURE_ID}.md"
+          test -s "specs/architecture/${FEATURE_ID}.md"
+          test -s "specs/test-plan/${FEATURE_ID}.md"
+          test -s "specs/test-cases/${FEATURE_ID}.yaml"
+
+      - name: 校验未生成非法根目录
+        run: |
+          for dir in prd architecture test-plan test-cases; do
+            if [ -d "$dir" ]; then
+              echo "[ERROR] 非法根目录: $dir"
+              exit 1
+            fi
+          done
+
+      - name: 输出产物大小
+        run: |
+          wc -c \
+            "specs/prd/${FEATURE_ID}.md" \
+            "specs/architecture/${FEATURE_ID}.md" \
+            "specs/test-plan/${FEATURE_ID}.md" \
+            "specs/test-cases/${FEATURE_ID}.yaml"
+
+      - name: 提交设计产物
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add \
+            "specs/prd/${FEATURE_ID}.md" \
+            "specs/architecture/${FEATURE_ID}.md" \
+            "specs/test-plan/${FEATURE_ID}.md" \
+            "specs/test-cases/${FEATURE_ID}.yaml"
+          git diff --cached --quiet || git commit -m "docs: 生成设计与测试产物 ${FEATURE_ID}"
           git push
-
-

@@ -1,64 +1,173 @@
-name: 03-build
+name: 03-构建阶段
 
 on:
   workflow_dispatch:
     inputs:
       feature_id:
+        description: "需求编号，例如 FEAT-0001"
         required: true
+        type: string
 
 jobs:
-  build-with-codex:
+  build-feature:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
 
     steps:
-      - uses: actions/checkout@v4
+      # ========================
+      # 1. 拉代码
+      # ========================
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-      - name: Set up Node
+      # ========================
+      # 2. 环境准备
+      # ========================
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install project deps
-        run: |
-          npm ci || true
-          pip install -r requirements.txt || true
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Install Codex CLI
-        run: |
-          npm install -g @openai/codex
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
 
-      - name: Run Codex builder
+      # ========================
+      # 3. Codex 配置（使用 CODEX_*）
+      # ========================
+      - name: 生成 Codex 配置
+        run: |
+          mkdir -p ~/.codex
+          cat > ~/.codex/config.toml <<EOF
+          model = "gpt-5.4"
+          model_reasoning_effort = "low"
+          model_provider = "newapi"
+          approval_policy = "never"
+          sandbox_mode = "workspace-write"
+
+          [model_providers.newapi]
+          name = "newapi"
+          base_url = "${CODEX_BASE_URL}"
+          wire_api = "responses"
+          env_key = "CODEX_API_KEY"
+          EOF
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          FEATURE_ID: ${{ github.event.inputs.feature_id }}
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+
+      # ========================
+      # 4. 前置校验（非常重要）
+      # ========================
+      - name: 校验设计产物存在
         run: |
-          codex exec "
-          Read specs/intake/${FEATURE_ID}.json,
-               specs/prd/${FEATURE_ID}.md,
-               specs/architecture/${FEATURE_ID}.md,
-               specs/test-plan/${FEATURE_ID}.md,
-               specs/test-cases/${FEATURE_ID}.yaml.
-          Implement the feature with tests.
-          Only modify apps/, packages/, tests/, and docs/ when necessary.
-          Do not hardcode secrets.
-          "
+          test -s "specs/intake/${FEATURE_ID}.json"
+          test -s "specs/prd/${FEATURE_ID}.md"
+          test -s "specs/architecture/${FEATURE_ID}.md"
+          test -s "specs/test-plan/${FEATURE_ID}.md"
+          test -s "specs/test-cases/${FEATURE_ID}.yaml"
+          test -f "specs/prompts/builder.strict.md"
+          test -f "AGENTS.md"
 
-      - name: Run unit tests
+      - name: 校验未存在非法目录（构建前）
         run: |
-          make test-unit
+          for dir in prd architecture test-plan test-cases; do
+            if [ -d "$dir" ]; then
+              echo "[ERROR] 构建前存在非法目录: $dir"
+              exit 1
+            fi
+          done
 
-      - name: Commit changes
+      # ========================
+      # 5. 执行 Builder Agent
+      # ========================
+      - name: 执行代码生成（Builder）
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          git config user.name "Hui Shen"
-          git config user.email "295225478@qq.com"
-          git checkout -b feat/${{ github.event.inputs.feature_id }} || git checkout feat/${{ github.event.inputs.feature_id }}
-          git add .
-          git commit -m "feat: implement ${{ github.event.inputs.feature_id }}" || echo "No changes"
-          git push --set-upstream origin feat/${{ github.event.inputs.feature_id }}
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/builder.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/builder.prompt)"
 
+      # ========================
+      # 6. 构建产物校验
+      # ========================
+      - name: 校验代码生成结果
+        run: |
+          echo "===== 检查 apps/ ====="
+          find apps -type f | grep -q . || (echo "[ERROR] apps 目录为空" && exit 1)
 
+          echo "===== 检查 tests/ ====="
+          find tests -type f | grep -q . || (echo "[ERROR] tests 目录为空" && exit 1)
 
+      - name: 校验 pytest 使用（禁止 unittest）
+        run: |
+          echo "===== 检查 pytest ====="
+          grep -R "import pytest" tests || (echo "[ERROR] 未使用 pytest" && exit 1)
+
+          echo "===== 检查 unittest ====="
+          if grep -R "import unittest" tests; then
+            echo "[ERROR] 使用了 unittest"
+            exit 1
+          fi
+
+      - name: 校验 FastAPI 使用
+        run: |
+          grep -R "FastAPI" apps || (echo "[ERROR] 未使用 FastAPI" && exit 1)
+
+      - name: 校验未生成非法目录（构建后）
+        run: |
+          for dir in prd architecture test-plan test-cases; do
+            if [ -d "$dir" ]; then
+              echo "[ERROR] 构建后生成非法目录: $dir"
+              exit 1
+            fi
+          done
+
+      # ========================
+      # 7. 安装依赖
+      # ========================
+      - name: 安装项目依赖
+        run: |
+          python -m pip install --upgrade pip
+
+          if [ -f pyproject.toml ]; then
+            python -m pip install -e . || true
+          fi
+
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt || true
+          fi
+
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt || true
+          fi
+
+          python -m pip install pytest
+
+      # ========================
+      # 8. 运行测试
+      # ========================
+      - name: 运行 pytest
+        run: |
+          python -m pytest tests -q
+
+      # ========================
+      # 9. 提交代码
+      # ========================
+      - name: 提交构建产物
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git checkout -b feat/${FEATURE_ID} || git checkout feat/${FEATURE_ID}
+
+          git add apps tests pyproject.toml requirements*.txt Makefile
+
+          git diff --cached --quiet || git commit -m "feat: 实现 ${FEATURE_ID}"
+          git push --set-upstream origin feat/${FEATURE_ID}

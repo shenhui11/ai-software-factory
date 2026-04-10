@@ -1,73 +1,38 @@
 {
   "feature_id": "FEAT-0001",
-  "title": "Excel 上传并生成分析报表",
-  "summary": "企业用户上传 Excel 后，系统自动校验、清洗并生成可查看的分析报表。",
-  "business_goal": "缩短业务人员从原始表格到可用分析结果的处理时间。",
-  "actors": ["admin", "analyst", "viewer"],
-  "scope": {
-    "in_scope": [
-      "Excel 上传",
-      "字段校验",
-      "基础清洗",
-      "报表生成",
-      "角色权限控制"
-    ],
-    "out_of_scope": [
-      "复杂 BI 可视化编辑器",
-      "第三方 ERP 自动同步"
-    ]
+  "raw_requirement": "做一个智能故事生成系统，支持多维度参数、分层生成、QA检测、编辑能力",
+  "selected_solution": {
+    "id": "solution_3",
+    "name": "编辑主导的人机共创写作台",
+    "reason": "待补充"
   },
-  "acceptance_criteria": [
-    "admin 能上传 xlsx 文件并看到处理状态",
-    "analyst 能查看清洗后的数据摘要",
-    "viewer 只能查看授权范围内的最终报表",
-    "无效列或空关键字段会给出明确错误提示"
+  "mvp_scope": [
+    "`feasibility=8`：实现可行性最高，适合首版落地。",
+    "`speed=8`：上线速度最快，利于尽早验证真实用户需求。",
+    "`cost=7`：首版建设成本相对可控。",
+    "`risk=7`：总体风险低于依赖重建模或重协作体系的方案。",
+    "从 brainstorm 看，原始需求虽然包含“多维参数 + 分层生成 + QA + 编辑”，但真正最容易形成差异化体验、也最适合首版验证的，是“可诊断、可改写、可回退、可对比”的编辑闭环。`solution_3` 对这部分覆盖最直接。",
+    "与 `solution_1` 相比，`solution_3` 放弃了完整的分层流水线，但换来了更短的交付路径和更低的系统复杂度，更适合做第一阶段产品。",
+    "与 `solution_2` 相比，`solution_3` 不强依赖角色状态推演、关系图谱和时间线引擎，避免首版陷入“建模很重、文本质量不稳定、用户输入门槛高”的风险。"
   ],
-  "non_functional_requirements": {
-    "security": [
-      "租户隔离",
-      "接口鉴权",
-      "审计日志"
+  "out_of_scope": [],
+  "actors": [],
+  "constraints": {
+    "tech_stack": [
+      "FastAPI",
+      "pytest"
     ],
-    "performance": [
-      "50MB 文件在 2 分钟内完成处理"
-    ],
-    "reliability": [
-      "任务失败可重试",
-      "处理状态可追踪"
-    ],
-    "observability": [
-      "记录上传、校验、清洗、生成报表链路日志"
-    ]
+    "non_functional": {
+      "security": [],
+      "performance": [],
+      "reliability": [],
+      "observability": []
+    }
   },
-  "constraints": [
-    "优先使用 PostgreSQL",
-    "Web 前端使用 React/Next.js",
-    "后端使用 FastAPI"
-  ],
-  "dependencies": [
-    "对象存储",
-    "任务队列",
-    "PostgreSQL"
-  ],
-  "deliverables": [
-    "上传 API",
-    "清洗服务",
-    "报表页面",
-    "权限中间件",
-    "测试用例"
-  ],
-  "test_strategy": {
-    "unit": [
-      "清洗规则函数",
-      "权限判断逻辑"
-    ],
-    "integration": [
-      "上传接口与任务队列联动",
-      "数据库持久化"
-    ],
-    "e2e": [
-      "登录-上传-查看报表完整链路"
-    ]
+  "acceptance_criteria": [],
+  "decision_artifacts": {
+    "brainstorm_file": "specs/brainstorm/FEAT-0001.md",
+    "scoring_file": "specs/scoring/FEAT-0001.json",
+    "decision_file": "specs/decision/FEAT-0001.md"
   }
 }

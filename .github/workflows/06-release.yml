@@ -5,6 +5,7 @@ on:
     inputs:
       version:
         required: true
+        type: string
 
 jobs:
   deploy-staging:
@@ -12,7 +13,7 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Deploy to staging"
+      - run: echo "Deploy staging for version ${{ github.event.inputs.version }}"
 
   deploy-production:
     needs: deploy-staging
@@ -20,4 +21,4 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Deploy to production"
+      - run: echo "Deploy production for version ${{ github.event.inputs.version }}"

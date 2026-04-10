@@ -1,0 +1,486 @@
+feature_id: FEAT-0001
+title: 编辑主导的人机共创写作台测试用例
+scope:
+  in_scope:
+    - 项目管理与核心设定
+    - 故事骨架生成
+    - 章节创建与初稿生成
+    - 段落级编辑
+    - QA 扫描与单条问题修复
+    - 版本 diff 与回退
+    - Markdown / TXT 导出
+  out_of_scope:
+    - 多人协作
+    - 审批流和权限管理系统
+    - 复杂关系图谱与时间线模拟
+test_cases:
+  - id: TC-HP-001
+    title: 创建故事项目并保存基础参数
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [1]
+      api:
+        - POST /api/v1/projects
+        - GET /api/v1/projects/{project_id}
+    preconditions:
+      - 系统可用
+    steps:
+      - 提交包含 title、genre、style、target_audience、length_target、tone、premise 的创建请求
+      - 使用返回的 project_id 查询项目详情
+    expected:
+      - 创建成功并返回 project_id
+      - 项目详情中字段与创建请求一致
+      - 响应无硬编码敏感信息
+
+  - id: TC-HP-002
+    title: 维护核心设定面板并可被后续流程引用
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [10]
+      api:
+        - PUT /api/v1/projects/{project_id}/canon
+        - GET /api/v1/projects/{project_id}/canon
+    preconditions:
+      - 已存在项目
+    steps:
+      - 更新 world_summary、style_constraints、narrative_rules 和角色卡字段
+      - 读取核心设定面板
+    expected:
+      - 设定更新成功
+      - 返回数据包含最新角色卡和风格约束
+
+  - id: TC-HP-003
+    title: 基于项目参数和设定生成故事骨架
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [2, 10]
+      api:
+        - POST /api/v1/projects/{project_id}/outline:generate
+        - GET /api/v1/projects/{project_id}/outline
+    preconditions:
+      - 已存在项目
+      - 已配置核心设定
+    steps:
+      - 发起故事骨架生成
+      - 读取当前骨架
+    expected:
+      - 返回 logline、core_conflict、character_summaries、outline chapters
+      - 骨架可被后续章节创建使用
+      - 不直接写入任何章节正文
+
+  - id: TC-HP-004
+    title: 基于骨架创建章节并生成章节初稿
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [3]
+      api:
+        - POST /api/v1/projects/{project_id}/chapters
+        - POST /api/v1/chapters/{chapter_id}/draft:generate
+        - GET /api/v1/chapters/{chapter_id}
+    preconditions:
+      - 已生成故事骨架
+    steps:
+      - 基于简纲项创建章节
+      - 为该章节生成初稿
+      - 获取章节详情
+    expected:
+      - 章节创建成功
+      - 返回章节正文和 current_version_id
+      - 初稿内容挂接到正确章节
+
+  - id: TC-HP-005
+    title: 保存人工编辑后的章节内容
+    category: happy_path
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [3, 9]
+      api:
+        - PATCH /api/v1/chapters/{chapter_id}
+        - GET /api/v1/chapters/{chapter_id}
+    preconditions:
+      - 章节已有初稿
+    steps:
+      - 更新章节正文
+      - 读取章节详情
+    expected:
+      - 最新正文保存成功
+      - 当前活动版本与保存结果一致
+
+  - id: TC-HP-006
+    title: 对选中段落执行重写并返回候选结果
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [4]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/edits
+        - GET /api/v1/chapters/{chapter_id}
+    preconditions:
+      - 章节存在非空正文
+    steps:
+      - 传入合法选区和 operation=rewrite
+      - 查询章节当前正文
+    expected:
+      - 返回一个或多个候选改写结果
+      - 当前章节正文未被直接覆盖
+      - 候选结果保留选区定位信息
+
+  - id: TC-HP-007
+    title: 执行章节 QA 扫描并获得结构化问题列表
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [5, 7]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/qa-scans
+        - GET /api/v1/chapters/{chapter_id}/qa-scans/{scan_id}
+    preconditions:
+      - 章节存在正文
+    steps:
+      - 发起 QA 扫描
+      - 获取扫描结果
+    expected:
+      - 返回 scan_id 和结构化问题列表
+      - 问题类型至少覆盖逻辑跳跃、设定冲突、情节断裂、信息重复、伏笔未承接、角色口吻偏移
+      - QA 扫描不修改正文
+
+  - id: TC-HP-008
+    title: 基于单条 QA 问题执行定点修复
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [6]
+      api:
+        - POST /api/v1/qa-issues/{issue_id}/fix
+    preconditions:
+      - 已存在 QA 扫描结果
+      - 至少存在一条 issue
+    steps:
+      - 选择单条 issue 发起修复
+      - 指定允许修改范围
+    expected:
+      - 返回修复候选版本
+      - 返回影响片段范围
+      - 修复范围限定在相关片段，不默认整章重写
+
+  - id: TC-HP-009
+    title: 创建版本快照并查看 diff
+    category: happy_path
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [8]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/versions
+        - GET /api/v1/chapters/{chapter_id}/versions
+        - GET /api/v1/versions/{version_id}/diff
+    preconditions:
+      - 章节已有至少两个版本
+    steps:
+      - 创建章节快照
+      - 获取版本列表
+      - 查询目标版本相对基线版本的 diff
+    expected:
+      - 版本列表可见新增快照
+      - diff 可明确展示版本差异
+
+  - id: TC-HP-010
+    title: 恢复到历史版本
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [9]
+      api:
+        - POST /api/v1/versions/{version_id}:restore
+        - GET /api/v1/chapters/{chapter_id}
+    preconditions:
+      - 章节已有历史版本
+    steps:
+      - 选择某历史版本执行回退
+      - 重新获取章节详情
+    expected:
+      - 当前活动版本更新为恢复结果
+      - 被恢复版本内容成为当前可见正文
+      - 历史版本记录仍保留
+
+  - id: TC-HP-011
+    title: 导出当前作品为 Markdown 和纯文本
+    category: happy_path
+    level: e2e
+    priority: P1
+    coverage:
+      acceptance_criteria: [11]
+      api:
+        - GET /api/v1/projects/{project_id}/export?format=md
+        - GET /api/v1/projects/{project_id}/export?format=txt
+    preconditions:
+      - 项目下至少存在一个章节内容
+    steps:
+      - 请求 Markdown 导出
+      - 请求 txt 导出
+    expected:
+      - 两种格式均可导出
+      - 导出内容反映当前活动版本
+
+  - id: TC-EDGE-001
+    title: 缺少必填字段时项目创建失败
+    category: edge_case
+    level: unit
+    priority: P0
+    coverage:
+      acceptance_criteria: [1]
+      api:
+        - POST /api/v1/projects
+    preconditions: []
+    steps:
+      - 提交缺少 title 或 genre 的请求
+    expected:
+      - 返回 4xx
+      - 错误结构符合 architecture 统一格式
+
+  - id: TC-EDGE-002
+    title: 未生成骨架时不能生成章节初稿
+    category: edge_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [2, 3]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/draft:generate
+    preconditions:
+      - 项目存在
+      - 未生成 outline
+    steps:
+      - 直接发起 draft 生成
+    expected:
+      - 请求被拒绝或返回明确前置条件错误
+
+  - id: TC-EDGE-003
+    title: 段落编辑选区越界或倒置时失败
+    category: edge_case
+    level: unit
+    priority: P0
+    coverage:
+      acceptance_criteria: [4]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/edits
+    preconditions:
+      - 章节存在正文
+    steps:
+      - 提交 selection_start 大于 selection_end
+      - 提交超出正文长度的选区
+    expected:
+      - 返回 4xx
+      - 不生成候选结果
+
+  - id: TC-EDGE-004
+    title: 不支持的编辑操作被拒绝
+    category: edge_case
+    level: unit
+    priority: P0
+    coverage:
+      acceptance_criteria: [4]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/edits
+    preconditions:
+      - 章节存在正文
+    steps:
+      - 提交 operation=translate 或其他未定义值
+    expected:
+      - 返回 4xx
+      - operation 仅允许 rewrite、expand、compress、tone_shift、style_shift
+
+  - id: TC-EDGE-005
+    title: 空正文执行 QA 扫描返回合法结果
+    category: edge_case
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [5]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/qa-scans
+    preconditions:
+      - 章节存在但正文为空
+    steps:
+      - 发起 QA 扫描
+    expected:
+      - 返回合法响应
+      - 可为空问题列表或明确提示无可分析内容
+      - 不产生正文修改
+
+  - id: TC-EDGE-006
+    title: issue 与章节不匹配时拒绝修复
+    category: edge_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [6]
+      api:
+        - POST /api/v1/qa-issues/{issue_id}/fix
+    preconditions:
+      - 存在多个章节和 issue
+    steps:
+      - 使用不属于当前章节上下文的 issue_id 发起修复
+    expected:
+      - 返回 4xx
+      - 不创建修复候选版本
+
+  - id: TC-EDGE-007
+    title: 不支持的导出格式被拒绝
+    category: edge_case
+    level: unit
+    priority: P1
+    coverage:
+      acceptance_criteria: [11]
+      api:
+        - GET /api/v1/projects/{project_id}/export
+    preconditions:
+      - 项目存在
+    steps:
+      - 请求 format=pdf
+    expected:
+      - 返回 4xx
+      - 仅允许 md 和 txt
+
+  - id: TC-PERM-001
+    title: 访问不存在的项目资源返回统一错误结构
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [1, 10]
+      api:
+        - GET /api/v1/projects/{project_id}
+        - GET /api/v1/projects/{project_id}/canon
+    preconditions: []
+    steps:
+      - 使用不存在的 project_id 访问资源
+    expected:
+      - 返回 404 或等效错误
+      - 错误体包含 error.code、error.message、request_id
+
+  - id: TC-PERM-002
+    title: 不能跨章节恢复版本
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [8, 9]
+      api:
+        - POST /api/v1/versions/{version_id}:restore
+    preconditions:
+      - 至少存在两个章节
+      - 每个章节均有自己的版本
+    steps:
+      - 对章节 A 使用章节 B 的 version_id 发起恢复
+    expected:
+      - 请求被拒绝
+      - 当前章节活动版本不变
+
+  - id: TC-PERM-003
+    title: QA 修复不能默认升级为整章重写
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [6]
+      api:
+        - POST /api/v1/qa-issues/{issue_id}/fix
+    preconditions:
+      - 已存在可修复 issue
+    steps:
+      - 发起 fix 请求但不给出超范围修改授权
+    expected:
+      - 返回的影响范围受限于 issue 相关片段
+      - 不允许直接返回整章重写结果作为默认行为
+
+  - id: TC-PERM-004
+    title: 不能绕过版本系统直接覆盖历史版本
+    category: permission_case
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [8, 9]
+      api:
+        - PATCH /api/v1/chapters/{chapter_id}
+        - GET /api/v1/chapters/{chapter_id}/versions
+    preconditions:
+      - 章节已有历史版本
+    steps:
+      - 保存新的章节内容
+      - 查询版本列表
+    expected:
+      - 原历史版本仍存在
+      - 新内容以新活动版本或新快照形式体现，而非覆盖旧版本记录
+
+  - id: TC-REG-001
+    title: 核心设定更新后后续生成应引用最新设定
+    category: regression_risk
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [2, 3, 10]
+      api:
+        - PUT /api/v1/projects/{project_id}/canon
+        - POST /api/v1/projects/{project_id}/outline:generate
+        - POST /api/v1/chapters/{chapter_id}/draft:generate
+    preconditions:
+      - 已存在项目与旧设定
+    steps:
+      - 更新角色 speech_style 或 style_constraints
+      - 重新生成骨架或章节初稿
+    expected:
+      - 结果使用最新设定
+      - 不继续引用旧设定缓存
+
+  - id: TC-REG-002
+    title: QA 扫描和段落编辑均不得隐式改写正文
+    category: regression_risk
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [4, 5]
+      api:
+        - POST /api/v1/chapters/{chapter_id}/edits
+        - POST /api/v1/chapters/{chapter_id}/qa-scans
+        - GET /api/v1/chapters/{chapter_id}
+    preconditions:
+      - 章节存在正文
+    steps:
+      - 记录当前正文
+      - 发起段落编辑
+      - 发起 QA 扫描
+      - 再次读取章节详情
+    expected:
+      - 两次操作后当前正文仍与初始记录一致
+
+  - id: TC-REG-003
+    title: 回退后导出内容必须反映当前活动版本
+    category: regression_risk
+    level: e2e
+    priority: P1
+    coverage:
+      acceptance_criteria: [9, 11]
+      api:
+        - POST /api/v1/versions/{version_id}:restore
+        - GET /api/v1/projects/{project_id}/export?format=md
+    preconditions:
+      - 存在至少两个可区分版本
+    steps:
+      - 回退到旧版本
+      - 执行导出
+    expected:
+      - 导出内容与恢复后的当前版本一致

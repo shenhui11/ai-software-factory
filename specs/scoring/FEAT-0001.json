@@ -1,0 +1,76 @@
+{
+  "feature_id": "FEAT-0001",
+  "solutions": [
+    {
+      "id": "solution_1",
+      "name": "分层导演式故事工坊",
+      "score": {
+        "feasibility": 7,
+        "cost": 5,
+        "speed": 5,
+        "market": 8,
+        "scalability": 8,
+        "risk": 7
+      },
+      "total_score": 40,
+      "summary": "最贴合分层生成原始需求且长期扩展空间大，但流程长、实现复杂、首版成本和上线压力偏高。"
+    },
+    {
+      "id": "solution_2",
+      "name": "角色与时间线驱动叙事引擎",
+      "score": {
+        "feasibility": 6,
+        "cost": 4,
+        "speed": 4,
+        "market": 8,
+        "scalability": 9,
+        "risk": 6
+      },
+      "total_score": 37,
+      "summary": "在角色一致性和长期连载上差异化明显、扩展性强，但前置建模重、文本文学化难度高、首版落地风险偏大。"
+    },
+    {
+      "id": "solution_3",
+      "name": "编辑主导的人机共创写作台",
+      "score": {
+        "feasibility": 8,
+        "cost": 7,
+        "speed": 8,
+        "market": 7,
+        "scalability": 6,
+        "risk": 7
+      },
+      "total_score": 43,
+      "summary": "最适合做高控制度 MVP，落地快、成本和风险更可控，但自动化深度与超长篇全局一致性能力相对有限。"
+    },
+    {
+      "id": "solution_4",
+      "name": "多人协作的故事中台与审稿指挥室",
+      "score": {
+        "feasibility": 5,
+        "cost": 4,
+        "speed": 4,
+        "market": 6,
+        "scalability": 8,
+        "risk": 5
+      },
+      "total_score": 32,
+      "summary": "适合团队规模化生产且协作治理价值明确，但目标市场更窄、协作与权限系统复杂、B 端落地周期较长。"
+    },
+    {
+      "id": "solution_5",
+      "name": "面向出版发行的故事生成与质检平台",
+      "score": {
+        "feasibility": 5,
+        "cost": 3,
+        "speed": 3,
+        "market": 7,
+        "scalability": 8,
+        "risk": 4
+      },
+      "total_score": 30,
+      "summary": "机构交付和合规质检的商业化上限高，但能力建设最重、验证最慢、销售与交付风险也最高。"
+    }
+  ],
+  "top_solution_id": "solution_3"
+}
