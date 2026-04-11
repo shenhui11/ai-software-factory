@@ -1,0 +1,32 @@
+{
+  "feature_id": "FEAT-0003",
+  "raw_requirement": "在当前系统的基础上加上一些模板，分为系统模板以及用户模板。系统模板需要有个后台管理的界面进行管理。可以直接从AI 生成模板，可以封装成 灵感 之类的。",
+  "selected_solution": {
+    "id": "solution_1",
+    "name": "模板资源库平台",
+    "reason": "- 评分结果最高，总分 `47`，显著高于其他方案，说明其在可行性、成本、上线速度与风险控制上最均衡。"
+  },
+  "mvp_scope": [
+    "待从 decision 结果中补充 MVP 范围"
+  ],
+  "out_of_scope": [],
+  "actors": [],
+  "constraints": {
+    "tech_stack": [
+      "FastAPI",
+      "pytest"
+    ],
+    "non_functional": {
+      "security": [],
+      "performance": [],
+      "reliability": [],
+      "observability": []
+    }
+  },
+  "acceptance_criteria": [],
+  "decision_artifacts": {
+    "brainstorm_file": "specs/brainstorm/FEAT-0003.md",
+    "scoring_file": "specs/scoring/FEAT-0003.json",
+    "decision_file": "specs/decision/FEAT-0003.md"
+  }
+}
