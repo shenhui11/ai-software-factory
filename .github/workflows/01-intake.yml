@@ -52,7 +52,7 @@ jobs:
           model_reasoning_effort = "low"
           model_provider = "newapi"
           approval_policy = "never"
-          sandbox_mode = "workspace-write"
+          sandbox_mode = "danger-full-access"
 
           [model_providers.newapi]
           name = "newapi"
