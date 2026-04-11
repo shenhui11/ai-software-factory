@@ -1,3 +1,13 @@
+- name: 测试 runner 写权限
+  run: |
+    mkdir -p specs/brainstorm
+    echo "probe" > specs/brainstorm/__write_probe__.md
+    ls -lah specs/brainstorm
+    test -s specs/brainstorm/__write_probe__.md
+
+
+
+
 name: 01-产品决策系统
 
 on:
@@ -62,13 +72,18 @@ jobs:
         run: |
           mkdir -p specs/brainstorm specs/scoring specs/decision specs/intake
 
-      - name: 执行 Brainstorm
+
+      - name: 生成 Brainstorm Prompt
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
           sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/brainstorm.md > /tmp/brainstorm.prompt
           printf "\n\n原始需求：%s\n" "$RAW_REQUIREMENT" >> /tmp/brainstorm.prompt
-          codex exec --skip-git-repo-check "$(cat /tmp/brainstorm.prompt)"
+
+      - name: 预览 Brainstorm Prompt
+        run: |
+          sed -n '1,120p' /tmp/brainstorm.prompt
+      
 
       - name: 校验 Brainstorm 输出
         run: |
