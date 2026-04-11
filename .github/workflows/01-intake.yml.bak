@@ -1,0 +1,118 @@
+name: 01-产品决策系统
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0001"
+        required: true
+        type: string
+      raw_requirement:
+        description: "一句话需求"
+        required: true
+        type: string
+
+jobs:
+  decision-system:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
+      RAW_REQUIREMENT: ${{ github.event.inputs.raw_requirement }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: 生成 Codex 配置
+        run: |
+          mkdir -p ~/.codex
+          cat > ~/.codex/config.toml <<EOF
+          model = "gpt-5.4"
+          model_reasoning_effort = "low"
+          model_provider = "newapi"
+          approval_policy = "never"
+          sandbox_mode = "workspace-write"
+
+          [model_providers.newapi]
+          name = "newapi"
+          base_url = "${CODEX_BASE_URL}"
+          wire_api = "responses"
+          env_key = "CODEX_API_KEY"
+          EOF
+        env:
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+
+      - name: 准备目录
+        run: |
+          mkdir -p specs/brainstorm specs/scoring specs/decision specs/intake
+
+
+      - name: 生成 Brainstorm Prompt
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/brainstorm.md > /tmp/brainstorm.prompt
+          printf "\n\n原始需求：%s\n" "$RAW_REQUIREMENT" >> /tmp/brainstorm.prompt
+
+      - name: 预览 Brainstorm Prompt
+        run: |
+          sed -n '1,120p' /tmp/brainstorm.prompt
+      
+
+      - name: 校验 Brainstorm 输出
+        run: |
+          test -s "specs/brainstorm/${FEATURE_ID}.md"
+
+      - name: 执行 Solution Structuring
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/solution-structurer.md > /tmp/structurer.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/structurer.prompt)"
+
+      - name: 校验 Structuring 输出
+        run: |
+          test -s "specs/scoring/${FEATURE_ID}.json"
+
+      - name: 执行 Decision
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/decision.md > /tmp/decision.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/decision.prompt)"
+
+      - name: 校验 Decision 输出
+        run: |
+          test -s "specs/decision/${FEATURE_ID}.md"
+
+      - name: 生成 Intake JSON
+        run: |
+          python scripts/generate_spec.py \
+            --feature_id "${FEATURE_ID}" \
+            --requirement "${RAW_REQUIREMENT}"
+
+      - name: 校验 Intake 输出
+        run: |
+          test -s "specs/intake/${FEATURE_ID}.json"
+
+      - name: 校验 Schema
+        run: |
+          python scripts/validate_spec.py \
+            "specs/intake/${FEATURE_ID}.json" \
+            "specs/schema/feature-spec.schema.json"
