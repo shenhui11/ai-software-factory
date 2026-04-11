@@ -27,9 +27,22 @@
 - 不要只给一个方案
 - 输出必须适合后续进入结构化与评分阶段
 
-
 你必须创建或覆盖以下文件：
 - specs/brainstorm/{feature_id}.md
 
-如果没有真正写入该文件，不允许结束任务。
-禁止写入任何其他 feature_id 的文件。
+强制动作规则：
+1. 你必须真正写入目标文件，而不是只在终端输出内容
+2. 必须优先使用 apply_patch 或 shell heredoc 写文件
+3. 如果目标文件不存在，必须创建
+4. 如果目标文件没有成功写入，不允许结束任务
+5. 只允许操作当前 feature_id 对应的文件
+6. 禁止修改其他 feature_id 的任何文件
+
+完成前必须执行以下检查：
+- ls -l specs/brainstorm/{feature_id}.md
+- sed -n '1,40p' specs/brainstorm/{feature_id}.md
+
+禁止：
+- 只返回 brainstorm 文本
+- 只说“如果你愿意我可以再写一次”
+- 在未写文件的情况下结束任务
