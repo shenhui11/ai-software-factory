@@ -1,0 +1,473 @@
+feature_id: FEAT-0003
+title: 模板资源库平台测试用例
+scope:
+  in_scope:
+    - 前台模板列表、详情与模板使用
+    - 用户模板创建、编辑、删除、查看
+    - 系统模板后台创建、编辑、发布、下线、删除与筛选
+    - 分类与标签管理
+    - 系统模板复制为用户模板
+    - AI 模板草稿生成与保存
+    - 权限控制、状态流转、统一错误结构
+  out_of_scope:
+    - 模板社区与模板市场
+    - 付费与商业化能力
+    - 多轮 AI 对话和多方案候选
+    - 团队共享与复杂协作权限
+test_cases:
+  - id: TC-HP-001
+    title: 管理员创建分类标签并发布系统模板
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [2, 3, 4]
+      api:
+        - POST /api/v1/admin/template-categories
+        - POST /api/v1/admin/template-tags
+        - POST /api/v1/admin/templates
+        - POST /api/v1/admin/templates/{template_id}:publish
+    preconditions:
+      - 当前登录身份为管理员
+    steps:
+      - 创建分类
+      - 创建标签
+      - 创建系统模板草稿
+      - 发布系统模板
+    expected:
+      - 分类和标签创建成功
+      - 系统模板创建成功并具备基础字段
+      - 模板状态变更为 published
+
+  - id: TC-HP-002
+    title: 管理员按状态分类关键词筛选系统模板列表
+    category: happy_path
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [3, 4]
+      api:
+        - GET /api/v1/admin/templates
+    preconditions:
+      - 当前登录身份为管理员
+      - 已存在不同状态、分类和关键词的系统模板
+    steps:
+      - 按 status 查询模板
+      - 按 category_id 查询模板
+      - 按 keyword 查询模板
+    expected:
+      - 返回结果符合筛选条件
+      - 列表项包含名称、状态、分类、更新时间等关键字段
+
+  - id: TC-HP-003
+    title: 普通用户查询模板列表时同时看到系统模板和我的模板
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [1, 8]
+      api:
+        - GET /api/v1/templates
+    preconditions:
+      - 用户已登录
+      - 已存在至少一条已发布系统模板
+      - 当前用户已存在至少一条个人模板
+    steps:
+      - 请求模板列表接口并使用 scope=all
+    expected:
+      - 返回结果中区分 system 与 user 两类模板
+      - 仅包含已发布系统模板和当前用户自己的模板
+
+  - id: TC-HP-004
+    title: 普通用户查看已发布系统模板详情
+    category: happy_path
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [8]
+      api:
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 用户已登录
+      - 目标模板为已发布系统模板
+    steps:
+      - 请求系统模板详情
+    expected:
+      - 返回模板名称、描述、内容、分类、标签、模板类型和状态
+      - 返回结果可用于前端详情展示
+
+  - id: TC-HP-005
+    title: 普通用户创建并编辑自己的用户模板
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [2, 5]
+      api:
+        - POST /api/v1/templates/user
+        - PATCH /api/v1/templates/user/{template_id}
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 用户已登录
+      - 已存在有效分类和标签
+    steps:
+      - 创建用户模板
+      - 编辑模板名称和内容
+      - 查询模板详情
+    expected:
+      - 用户模板创建成功并归属于当前用户
+      - 编辑后 updated_at 变化
+      - 查询结果返回最新内容
+
+  - id: TC-HP-006
+    title: 普通用户删除自己的用户模板
+    category: happy_path
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [5]
+      api:
+        - DELETE /api/v1/templates/user/{template_id}
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 用户已登录
+      - 目标模板属于当前用户
+    steps:
+      - 删除用户模板
+      - 再次查询该模板
+    expected:
+      - 删除请求成功
+      - 后续查询返回不存在或无权限结果
+
+  - id: TC-HP-007
+    title: 普通用户复制系统模板生成个人模板
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [5, 6]
+      api:
+        - POST /api/v1/templates/{template_id}:clone
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 用户已登录
+      - 目标模板为已发布系统模板
+    steps:
+      - 复制系统模板
+      - 查询新生成的个人模板详情
+    expected:
+      - 返回新的用户模板记录
+      - 新模板 template_type 为 user
+      - 新模板包含 source_template_id 并归属于当前用户
+
+  - id: TC-HP-008
+    title: 普通用户使用模板作为创建起始载荷
+    category: happy_path
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [9]
+      api:
+        - POST /api/v1/templates/{template_id}:use
+    preconditions:
+      - 用户已登录
+      - 目标模板为当前用户可访问的模板
+    steps:
+      - 调用模板使用接口
+    expected:
+      - 返回标准化模板内容快照
+      - 模板本身未被修改
+
+  - id: TC-HP-009
+    title: 普通用户一句话生成 AI 模板草稿并保存为个人模板
+    category: happy_path
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [10, 11]
+      api:
+        - POST /api/v1/templates/drafts:generate
+        - POST /api/v1/templates/user
+    preconditions:
+      - 用户已登录
+      - AI 网关可用
+    steps:
+      - 提交一句话需求生成草稿
+      - 使用返回草稿创建用户模板
+    expected:
+      - 生成接口返回 name、description、content 和建议分类标签
+      - 保存动作成功后，用户模板入库
+      - 生成接口本身不直接产生已保存模板
+
+  - id: TC-EDGE-001
+    title: 发布缺少必填字段的系统模板应失败
+    category: edge_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [2, 3]
+      api:
+        - POST /api/v1/admin/templates
+        - POST /api/v1/admin/templates/{template_id}:publish
+    preconditions:
+      - 当前登录身份为管理员
+      - 已创建一条缺失 content 或 name 的系统模板草稿
+    steps:
+      - 尝试发布该草稿
+    expected:
+      - 返回 4xx
+      - 错误结构符合统一规范
+      - 模板状态保持 draft
+
+  - id: TC-EDGE-002
+    title: 普通用户列表查询不得看到未发布或已下线系统模板
+    category: edge_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [3, 8]
+      api:
+        - GET /api/v1/templates
+    preconditions:
+      - 用户已登录
+      - 已存在 draft、published、offline 三种状态的系统模板
+    steps:
+      - 请求模板列表接口
+    expected:
+      - 仅返回 published 的系统模板
+      - draft 和 offline 模板不出现在普通用户结果中
+
+  - id: TC-EDGE-003
+    title: 复制后的用户模板不受源系统模板后续编辑影响
+    category: edge_case
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [6]
+      api:
+        - POST /api/v1/templates/{template_id}:clone
+        - PATCH /api/v1/admin/templates/{template_id}
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 已有用户成功复制某个系统模板
+      - 当前登录身份可分别执行用户查询和管理员编辑
+    steps:
+      - 管理员修改源系统模板内容
+      - 用户查询已复制的个人模板
+    expected:
+      - 用户模板内容保持复制时的快照
+      - source_template_id 仍指向原系统模板
+
+  - id: TC-EDGE-004
+    title: 删除系统模板时不级联删除已复制的用户模板
+    category: edge_case
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [3, 5, 6]
+      api:
+        - DELETE /api/v1/admin/templates/{template_id}
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 已存在一个被用户复制过的系统模板
+      - 当前登录身份为管理员
+    steps:
+      - 删除系统模板
+      - 由用户查询自己的复制模板
+    expected:
+      - 系统模板删除成功
+      - 用户复制模板仍可正常查询
+
+  - id: TC-EDGE-005
+    title: 用户创建模板时传入无效分类或标签应失败
+    category: edge_case
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [2, 5]
+      api:
+        - POST /api/v1/templates/user
+    preconditions:
+      - 用户已登录
+    steps:
+      - 使用不存在的 category_id 或 tag_ids 创建模板
+    expected:
+      - 返回 4xx
+      - 不创建模板记录
+
+  - id: TC-EDGE-006
+    title: AI 模板草稿生成失败时不得自动生成模板记录
+    category: edge_case
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [10, 11]
+      api:
+        - POST /api/v1/templates/drafts:generate
+        - GET /api/v1/templates
+    preconditions:
+      - 用户已登录
+      - AI 网关返回超时或错误
+    steps:
+      - 调用生成接口
+      - 查询我的模板列表
+    expected:
+      - 返回明确错误
+      - 我的模板列表中不新增模板
+
+  - id: TC-PERM-001
+    title: 未登录用户访问模板接口应返回鉴权失败
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [8, 10]
+      api:
+        - GET /api/v1/templates
+        - POST /api/v1/templates/user
+        - POST /api/v1/templates/drafts:generate
+    preconditions:
+      - 请求未携带有效登录态
+    steps:
+      - 分别访问模板列表、创建用户模板和 AI 草稿生成接口
+    expected:
+      - 请求均返回鉴权失败
+
+  - id: TC-PERM-002
+    title: 普通用户不得访问后台系统模板管理接口
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [3, 4]
+      api:
+        - GET /api/v1/admin/templates
+        - POST /api/v1/admin/templates
+        - DELETE /api/v1/admin/templates/{template_id}
+    preconditions:
+      - 当前登录身份为普通用户
+    steps:
+      - 访问后台模板查询、创建和删除接口
+    expected:
+      - 请求均返回 403 或等价权限错误
+      - 不产生任何写入效果
+
+  - id: TC-PERM-003
+    title: 普通用户不得直接编辑系统模板原文
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [6]
+      api:
+        - PATCH /api/v1/admin/templates/{template_id}
+        - PATCH /api/v1/templates/user/{template_id}
+    preconditions:
+      - 当前登录身份为普通用户
+      - 已存在一条系统模板
+    steps:
+      - 尝试通过后台接口修改系统模板
+      - 尝试将系统模板 ID 传入用户模板编辑接口
+    expected:
+      - 两种方式均失败
+      - 系统模板原文不发生变化
+
+  - id: TC-PERM-004
+    title: 非拥有者不得查看编辑或删除其他用户模板
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [5, 7]
+      api:
+        - GET /api/v1/templates/{template_id}
+        - PATCH /api/v1/templates/user/{template_id}
+        - DELETE /api/v1/templates/user/{template_id}
+    preconditions:
+      - 用户A已创建一条用户模板
+      - 当前登录身份为用户B
+    steps:
+      - 查询该模板详情
+      - 编辑该模板
+      - 删除该模板
+    expected:
+      - 三个请求均返回无权限或不可见
+      - 用户A的模板保持不变
+
+  - id: TC-PERM-005
+    title: 管理员可查看后台未发布系统模板详情但普通用户不可见
+    category: permission_case
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [3, 8]
+      api:
+        - GET /api/v1/templates/{template_id}
+    preconditions:
+      - 已存在一条 draft 或 offline 状态的系统模板
+    steps:
+      - 管理员请求模板详情
+      - 普通用户请求同一模板详情
+    expected:
+      - 管理员可查看该模板详情
+      - 普通用户收到无权限或不可见结果
+
+  - id: TC-REG-001
+    title: 后台发布下线后前台可见性随状态正确变化
+    category: regression_risk
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [3, 8]
+      api:
+        - POST /api/v1/admin/templates/{template_id}:publish
+        - POST /api/v1/admin/templates/{template_id}:offline
+        - GET /api/v1/templates
+    preconditions:
+      - 当前存在一条系统模板草稿
+      - 分别具备管理员与普通用户会话
+    steps:
+      - 管理员发布模板
+      - 普通用户查询列表确认可见
+      - 管理员下线模板
+      - 普通用户再次查询列表
+    expected:
+      - 发布后模板在前台可见
+      - 下线后模板在前台不可见
+
+  - id: TC-REG-002
+    title: 模板主体与标签关系更新应保持事务一致
+    category: regression_risk
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [2, 4]
+      api:
+        - PATCH /api/v1/admin/templates/{template_id}
+    preconditions:
+      - 当前登录身份为管理员
+      - 已存在可编辑系统模板和多个标签
+    steps:
+      - 提交同时修改模板内容与标签关系的请求
+      - 在持久化环节模拟部分失败
+    expected:
+      - 更新整体回滚或整体成功
+      - 不出现模板主体已更新但标签关系部分写入的状态
+
+  - id: TC-REG-003
+    title: 错误响应应始终返回统一结构与 request_id
+    category: regression_risk
+    level: integration
+    priority: P1
+    coverage:
+      acceptance_criteria: [12]
+      api:
+        - GET /api/v1/templates/non-existent
+        - POST /api/v1/admin/templates/{template_id}:publish
+    preconditions:
+      - 分别准备不存在资源和非法发布请求
+    steps:
+      - 请求不存在模板详情
+      - 请求非法发布操作
+    expected:
+      - 两个失败响应均包含 error.code、error.message、details 和 request_id
