@@ -13,6 +13,13 @@ from apps.backend.domain.models import (
     StoryOutline,
     StoryProject,
 )
+from apps.backend.template.models import (
+    Template,
+    TemplateAuditEvent,
+    TemplateCategory,
+    TemplateGenerationRecord,
+    TemplateTag,
+)
 
 
 class InMemoryStore:
@@ -30,6 +37,11 @@ class InMemoryStore:
         self.scans: dict[str, QaScan] = {}
         self.chapter_scans: dict[str, list[str]] = {}
         self.issues: dict[str, QaIssue] = {}
+        self.templates: dict[str, Template] = {}
+        self.template_categories: dict[str, TemplateCategory] = {}
+        self.template_tags: dict[str, TemplateTag] = {}
+        self.template_generation_records: dict[str, TemplateGenerationRecord] = {}
+        self.template_audit_events: dict[str, TemplateAuditEvent] = {}
 
     def dump_project_state(self, project_id: str) -> dict[str, Any]:
         project = self.projects[project_id]

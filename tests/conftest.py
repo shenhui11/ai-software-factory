@@ -31,6 +31,9 @@ class ApiTestClient:
     def patch(self, path: str, **kwargs) -> httpx.Response:
         return asyncio.run(self._request("PATCH", path, **kwargs))
 
+    def delete(self, path: str, **kwargs) -> httpx.Response:
+        return asyncio.run(self._request("DELETE", path, **kwargs))
+
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -44,3 +47,30 @@ class ApiTestClient:
 def client() -> ApiTestClient:
     store.reset()
     yield ApiTestClient()
+
+
+@pytest.fixture()
+def admin_headers() -> dict[str, str]:
+    return {
+        "x-user-id": "admin-1",
+        "x-user-role": "admin",
+        "x-request-id": "req-admin-1",
+    }
+
+
+@pytest.fixture()
+def user_headers() -> dict[str, str]:
+    return {
+        "x-user-id": "user-1",
+        "x-user-role": "user",
+        "x-request-id": "req-user-1",
+    }
+
+
+@pytest.fixture()
+def other_user_headers() -> dict[str, str]:
+    return {
+        "x-user-id": "user-2",
+        "x-user-role": "user",
+        "x-request-id": "req-user-2",
+    }

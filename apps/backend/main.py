@@ -6,9 +6,11 @@ from fastapi import FastAPI
 
 from apps.backend.api.errors import register_error_handlers
 from apps.backend.api.routes import router
+from apps.backend.template.routes import router as template_router
 
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="FEAT-0001 Story Workbench")
+app = FastAPI(title="AI Software Factory Backend")
 register_error_handlers(app)
 app.include_router(router)
+app.include_router(template_router)
