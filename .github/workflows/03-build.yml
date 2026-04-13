@@ -181,24 +181,24 @@ jobs:
         run: |
           python -m pytest tests -q
 
+      
       - name: 提交构建产物
+        env:
+          BUILD_BRANCH: feat/${{ env.FEATURE_ID }}-${{ github.run_id }}
         run: |
           git config user.name "Hui Shen"
           git config user.email "295225478@qq.com"
 
-          git checkout -b feat/${FEATURE_ID} || git checkout feat/${FEATURE_ID}
-          
+          git checkout -b "${BUILD_BRANCH}"
+
           echo "===== 提交前状态 ====="
           git status --short
-          
+
           git add -A
 
           echo "===== add 后状态 ====="
           git status --short
-
           git diff --cached --name-only
 
           git diff --cached --quiet || git commit -m "feat: implement ${FEATURE_ID}"
-          git push --set-upstream origin feat/${FEATURE_ID}
-
-
+          git push --set-upstream origin "${BUILD_BRANCH}"
