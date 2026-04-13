@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
@@ -141,3 +141,128 @@ class QaScan:
     issues: list[QaIssue]
     id: str = field(default_factory=lambda: new_id("scan"))
     created_at: datetime = field(default_factory=utc_now)
+
+
+MembershipStatus = Literal["regular", "growth_member"]
+TaskType = Literal["check_in", "manual_action", "streak"]
+TaskStatus = Literal["pending", "completed", "blocked"]
+ChangeType = Literal["earn", "spend"]
+
+
+@dataclass
+class MemberProfile:
+    user_id: str
+    membership_status: MembershipStatus = "regular"
+    current_level: str = "level_1"
+    growth_value: int = 0
+    last_level_up_at: datetime | None = None
+    current_config_version: int = 1
+    id: str = field(default_factory=lambda: new_id("member"))
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class PointsAccount:
+    user_id: str
+    points_balance: int = 0
+    points_earned_total: int = 0
+    points_spent_total: int = 0
+    last_earned_at: datetime | None = None
+    id: str = field(default_factory=lambda: new_id("points"))
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class MemberTaskConfig:
+    task_code: str
+    task_type: TaskType
+    title: str
+    description: str
+    is_enabled: bool
+    reward_points: int
+    daily_limit: int
+    window_rule: str
+    trigger_source: str
+    config_version: int
+    id: str = field(default_factory=lambda: new_id("taskcfg"))
+    updated_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class MemberTaskRecord:
+    user_id: str
+    task_code: str
+    task_date: date
+    progress: int = 0
+    status: TaskStatus = "pending"
+    completed_at: datetime | None = None
+    request_ids: list[str] = field(default_factory=list)
+    id: str = field(default_factory=lambda: new_id("taskrec"))
+
+
+@dataclass
+class PointsLedgerEntry:
+    user_id: str
+    source_type: str
+    source_ref_id: str
+    change_type: ChangeType
+    points_delta: int
+    balance_after: int
+    request_id: str
+    details: dict[str, object]
+    id: str = field(default_factory=lambda: new_id("ledger"))
+    created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class LevelConfig:
+    code: str
+    name: str
+    growth_threshold: int
+    description: str
+
+
+@dataclass
+class BenefitConfig:
+    benefit_code: str
+    level_code: str
+    name: str
+    description: str
+    is_enabled: bool
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class RewardRecord:
+    user_id: str
+    reward_type: str
+    reward_code: str
+    title: str
+    details: dict[str, object]
+    request_id: str
+    id: str = field(default_factory=lambda: new_id("reward"))
+    created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class MemberAuditEvent:
+    user_id: str
+    event_type: str
+    request_id: str
+    details: dict[str, object]
+    operator_user_id: str | None = None
+    operator_role: str | None = None
+    id: str = field(default_factory=lambda: new_id("audit"))
+    created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass
+class MemberConfigSnapshot:
+    version: int
+    tasks: list[MemberTaskConfig]
+    levels: list[LevelConfig]
+    benefits: list[BenefitConfig]
+    published_at: datetime | None = None
+    updated_at: datetime = field(default_factory=utc_now)
