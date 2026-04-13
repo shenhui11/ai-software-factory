@@ -16,6 +16,7 @@ jobs:
 
     env:
       FEATURE_ID: ${{ github.event.inputs.feature_id }}
+      BUILD_BRANCH: feat/${{ github.event.inputs.feature_id }}-build-${{ github.run_id }}
 
     steps:
       - name: 检出代码
@@ -70,6 +71,7 @@ jobs:
       - name: 打印运行上下文
         run: |
           echo "FEATURE_ID=${FEATURE_ID}"
+          echo "BUILD_BRANCH=${BUILD_BRANCH}"
           pwd
           git status --short || true
           echo "===== specs 输入 ====="
@@ -96,7 +98,7 @@ jobs:
       - name: 预览 Builder Prompt
         run: |
           echo "===== Builder Prompt Preview ====="
-          sed -n '1,220p' /tmp/builder.prompt
+          sed -n '1,240p' /tmp/builder.prompt
 
       - name: 执行代码生成（Builder）
         env:
@@ -112,21 +114,24 @@ jobs:
 
           echo "===== apps 目录内容 ====="
           ls -lah apps || true
-          find apps -maxdepth 6 -type f | sort || true
+          find apps -maxdepth 8 -type f | sort || true
 
           echo "===== tests 目录内容 ====="
           ls -lah tests || true
-          find tests -maxdepth 6 -type f | sort || true
+          find tests -maxdepth 8 -type f | sort || true
 
           echo "===== docs 目录内容 ====="
           ls -lah docs || true
-          find docs -maxdepth 3 -type f | sort || true
+          find docs -maxdepth 4 -type f | sort || true
 
           echo "===== git 状态 ====="
           git status --short || true
 
-          echo "===== git diff 文件列表 ====="
+          echo "===== 已跟踪文件 diff ====="
           git diff --name-only || true
+
+          echo "===== 未跟踪文件 ====="
+          git ls-files --others --exclude-standard || true
 
           echo "===== apps 非空检查 ====="
           test -n "$(find apps -type f | head -n 1)"
@@ -134,14 +139,40 @@ jobs:
           echo "===== tests 非空检查 ====="
           test -n "$(find tests -type f | head -n 1)"
 
+      - name: 校验 FEAT 关键输出文件
+        run: |
+          case "${FEATURE_ID}" in
+            FEAT-0002)
+              test -f apps/backend/main.py
+              test -f docs/feat-0002-run.md || test -f docs/member-system.md
+              test -n "$(find tests -type f | grep -E 'member|membership' | head -n 1)"
+              ;;
+            FEAT-0003)
+              test -n "$(find apps -type f | grep -E 'template' | head -n 1)"
+              test -n "$(find tests -type f | grep -E 'template' | head -n 1)"
+              ;;
+            *)
+              echo "未配置 ${FEATURE_ID} 的专用关键文件检查，跳过专用校验。"
+              ;;
+          esac
+
       - name: 校验未生成非法根目录
         run: |
+          echo "===== 仓库根目录目录列表 ====="
+          find . -maxdepth 1 -type d | sort
+
+          FOUND_BAD_DIR=0
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
               echo "[ERROR] 生成了非法根目录: $dir"
-              exit 1
+              ls -lah "$dir" || true
+              FOUND_BAD_DIR=1
             fi
           done
+
+          if [ "$FOUND_BAD_DIR" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: 预览关键生成文件
         run: |
@@ -158,6 +189,13 @@ jobs:
             echo "FILE=$FIRST_TEST_FILE"
             sed -n '1,120p' "$FIRST_TEST_FILE"
           fi
+
+      - name: 清理探针文件
+        run: |
+          rm -f apps/__write_probe__.txt
+          rm -f tests/__write_probe__.txt
+          echo "===== 清理探针后状态 ====="
+          git status --short || true
 
       - name: 安装项目依赖
         run: |
@@ -181,10 +219,7 @@ jobs:
         run: |
           python -m pytest tests -q
 
-      
       - name: 提交构建产物
-        env:
-          BUILD_BRANCH: feat/${{ env.FEATURE_ID }}-${{ github.run_id }}
         run: |
           git config user.name "Hui Shen"
           git config user.email "295225478@qq.com"
