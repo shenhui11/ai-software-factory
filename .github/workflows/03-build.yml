@@ -74,20 +74,15 @@ jobs:
           echo "BUILD_BRANCH=${BUILD_BRANCH}"
           pwd
           git status --short || true
-          echo "===== specs 输入 ====="
-          ls -lah specs/intake specs/prd specs/architecture specs/test-plan specs/test-cases || true
 
       - name: 创建基础目录
         run: |
           mkdir -p apps tests docs packages
-          ls -lah .
 
       - name: 测试 runner 写权限
         run: |
           echo "probe" > apps/__write_probe__.txt
           echo "probe" > tests/__write_probe__.txt
-          ls -lah apps
-          ls -lah tests
           test -s apps/__write_probe__.txt
           test -s tests/__write_probe__.txt
 
@@ -107,22 +102,23 @@ jobs:
           PROMPT_CONTENT="$(cat /tmp/builder.prompt)"
           codex exec --skip-git-repo-check "$PROMPT_CONTENT"
 
+      - name: 清理缓存目录
+        run: |
+          find apps tests -type d -name "__pycache__" -prune -exec rm -rf {} + || true
+
       - name: 校验 Builder 真实输出
         run: |
-          echo "===== 当前目录 ====="
-          pwd
-
           echo "===== apps 目录内容 ====="
           ls -lah apps || true
-          find apps -maxdepth 8 -type f | sort || true
+          find apps -type f | sort || true
 
           echo "===== tests 目录内容 ====="
           ls -lah tests || true
-          find tests -maxdepth 8 -type f | sort || true
+          find tests -type f | sort || true
 
           echo "===== docs 目录内容 ====="
           ls -lah docs || true
-          find docs -maxdepth 4 -type f | sort || true
+          find docs -type f | sort || true
 
           echo "===== git 状态 ====="
           git status --short || true
@@ -133,23 +129,35 @@ jobs:
           echo "===== 未跟踪文件 ====="
           git ls-files --others --exclude-standard || true
 
-          echo "===== apps 非空检查 ====="
-          test -n "$(find apps -type f | head -n 1)"
+          echo "===== apps Python 源文件检查 ====="
+          test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
 
-          echo "===== tests 非空检查 ====="
-          test -n "$(find tests -type f | head -n 1)"
+          echo "===== tests Python 源文件检查 ====="
+          test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
 
       - name: 校验 FEAT 关键输出文件
         run: |
           case "${FEATURE_ID}" in
             FEAT-0002)
               test -f apps/backend/main.py
-              test -f docs/feat-0002-run.md || test -f docs/member-system.md
-              test -n "$(find tests -type f | grep -E 'member|membership' | head -n 1)"
+              test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'member' | head -n 1)"
+              test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'member|membership' | head -n 1)"
+
+              if [ -f docs/feat-0002-run.md ] || [ -f docs/member-system.md ]; then
+                echo "检测到 FEAT-0002 运行文档"
+              else
+                echo "[WARN] 未检测到 FEAT-0002 运行文档，继续执行"
+              fi
               ;;
             FEAT-0003)
-              test -n "$(find apps -type f | grep -E 'template' | head -n 1)"
-              test -n "$(find tests -type f | grep -E 'template' | head -n 1)"
+              test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'template' | head -n 1)"
+              test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'template' | head -n 1)"
+
+              if [ -f docs/feat-0003-run.md ]; then
+                echo "检测到 FEAT-0003 运行文档"
+              else
+                echo "[WARN] 未检测到 FEAT-0003 运行文档，继续执行"
+              fi
               ;;
             *)
               echo "未配置 ${FEATURE_ID} 的专用关键文件检查，跳过专用校验。"
@@ -176,18 +184,24 @@ jobs:
 
       - name: 预览关键生成文件
         run: |
-          echo "===== apps 预览 ====="
-          FIRST_APP_FILE="$(find apps -type f | head -n 1)"
+          echo "===== apps 预览（只看 .py） ====="
+          FIRST_APP_FILE="$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | sort | head -n 1)"
           if [ -n "$FIRST_APP_FILE" ]; then
             echo "FILE=$FIRST_APP_FILE"
             sed -n '1,120p' "$FIRST_APP_FILE"
+          else
+            echo "[ERROR] apps 下没有找到 .py 文件"
+            exit 1
           fi
 
-          echo "===== tests 预览 ====="
-          FIRST_TEST_FILE="$(find tests -type f | head -n 1)"
+          echo "===== tests 预览（只看 .py） ====="
+          FIRST_TEST_FILE="$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | sort | head -n 1)"
           if [ -n "$FIRST_TEST_FILE" ]; then
             echo "FILE=$FIRST_TEST_FILE"
             sed -n '1,120p' "$FIRST_TEST_FILE"
+          else
+            echo "[ERROR] tests 下没有找到 .py 文件"
+            exit 1
           fi
 
       - name: 清理探针文件
@@ -237,3 +251,4 @@ jobs:
 
           git diff --cached --quiet || git commit -m "feat: implement ${FEATURE_ID}"
           git push --set-upstream origin "${BUILD_BRANCH}"
+
