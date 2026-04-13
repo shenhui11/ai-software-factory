@@ -31,6 +31,9 @@ class ApiTestClient:
     def patch(self, path: str, **kwargs) -> httpx.Response:
         return asyncio.run(self._request("PATCH", path, **kwargs))
 
+    def delete(self, path: str, **kwargs) -> httpx.Response:
+        return asyncio.run(self._request("DELETE", path, **kwargs))
+
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
