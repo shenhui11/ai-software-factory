@@ -15,7 +15,7 @@ test-integration:
 	pytest tests/integration -q
 
 test-e2e:
-	npx playwright test
+	pytest tests/e2e -q
 
 lint:
 	ruff check .

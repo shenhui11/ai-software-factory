@@ -1,120 +1,113 @@
 from __future__ import annotations
 
+from apps.backend.application import services
+from apps.backend.application.services import DomainError
+from apps.backend.infrastructure.store import store
 
-def create_seeded_chapter(client) -> str:
-    project = client.post(
-        "/api/v1/projects",
-        json={
-            "title": "Seed",
-            "genre": "Fantasy",
-            "style": "Lyrical",
-            "target_audience": "Adult",
-            "length_target": "Short story",
-            "tone": "Melancholic",
-            "premise": "A courier carries a memory across a broken kingdom.",
-        },
-    ).json()
-    client.put(
-        f"/api/v1/projects/{project['id']}/canon",
-        json={
-            "world_summary": "Ruined roads divide the kingdom.",
-            "style_constraints": ["Use close POV"],
-            "narrative_rules": ["No omniscient narrator"],
-            "characters": [
-                {
-                    "name": "Eda",
-                    "role": "Courier",
-                    "personality_traits": ["wary"],
-                    "speech_style": "quiet",
-                    "motivation": "Deliver the memory intact",
-                    "key_relationships": ["Prince Rowan"],
-                    "notes": "Keeps promises",
-                }
-            ],
-        },
+
+def test_member_summary_initializes_profile_and_account() -> None:
+    summary = services.get_member_summary("user-1")
+    assert summary["membership_status"] == "regular"
+    assert summary["current_level"] == "L1"
+    assert summary["points_balance"] == 0
+
+
+def test_invalid_change_type_is_rejected() -> None:
+    services.ensure_member("user-1")
+    try:
+        services.get_points_ledger("user-1", "bad", 20, None)
+    except DomainError as exc:
+        assert exc.code == "invalid_change_type"
+    else:
+        raise AssertionError("Expected DomainError")
+
+
+def test_invalid_config_publish_fails_for_unknown_benefit() -> None:
+    services.update_level_config(
+        [
+            {
+                "level_code": "L1",
+                "level_name": "Regular",
+                "growth_threshold": 0,
+                "description": "base",
+            }
+        ],
+        "admin-1",
+        "admin",
+        "req-levels",
     )
-    outline = client.post(f"/api/v1/projects/{project['id']}/outline:generate").json()
-    chapter = client.post(
-        f"/api/v1/projects/{project['id']}/chapters",
-        json={
-            "outline_item_id": outline["chapters"][0]["id"],
-            "title": "Chapter 1",
-            "summary": "Eda enters the capital.",
-        },
-    ).json()
-    client.post(
-        f"/api/v1/chapters/{chapter['id']}/draft:generate",
-        json={
-            "chapter_goal": "Open the journey",
-            "context_window_strategy": "outline only",
-        },
+    services.update_task_config(
+        [
+            {
+                "task_code": "daily_check_in",
+                "title": "Daily Check-in",
+                "task_type": "check_in",
+                "reward_points": 10,
+                "daily_limit": 1,
+                "is_enabled": True,
+            }
+        ],
+        "admin-1",
+        "admin",
+        "req-tasks",
     )
-    return chapter["id"]
-
-def test_create_project_missing_required_field_returns_uniform_error(client):
-    response = client.post(
-        "/api/v1/projects",
-        json={
-            "genre": "Fantasy",
-            "style": "Lyrical",
-            "target_audience": "Adult",
-            "length_target": "Short story",
-            "tone": "Calm",
-            "premise": "Missing title",
-        },
+    services.update_benefit_config(
+        [
+            {
+                "benefit_code": "unknown_badge",
+                "title": "Unknown",
+                "description": "invalid",
+                "is_enabled": True,
+            }
+        ],
+        [{"level_code": "L1", "benefit_codes": ["unknown_badge"]}],
+        "admin-1",
+        "admin",
+        "req-benefits",
     )
-    assert response.status_code == 422
-    body = response.json()
-    assert body["error"]["code"] == "validation_error"
-    assert body["error"]["message"] == "Request validation failed."
+    try:
+        services.publish_config("admin-1", "admin", "req-publish")
+    except DomainError as exc:
+        assert exc.code == "config_validation_failed"
+    else:
+        raise AssertionError("Expected DomainError")
 
 
-def test_invalid_selection_is_rejected(client):
-    chapter_id = create_seeded_chapter(client)
-    response = client.post(
-        f"/api/v1/chapters/{chapter_id}/edits",
-        json={
-            "selection_start": 50,
-            "selection_end": 10,
-            "operation": "rewrite",
-            "instruction": "invalid range",
-        },
-    )
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "invalid_selection"
+def test_risk_control_blocks_high_frequency_requests() -> None:
+    for index in range(3):
+        services._enforce_risk_control("user-1", "task_completion", f"req-{index}")
+    try:
+        services._enforce_risk_control("user-1", "task_completion", "req-4")
+    except DomainError as exc:
+        assert exc.code == "risk_control_blocked"
+        assert exc.status_code == 429
+    else:
+        raise AssertionError("Expected DomainError")
 
 
-def test_invalid_export_format_is_rejected(client):
-    project = client.post(
-        "/api/v1/projects",
-        json={
-            "title": "Export Target",
-            "genre": "Drama",
-            "style": "Lean",
-            "target_audience": "Adult",
-            "length_target": "Novel",
-            "tone": "Reflective",
-            "premise": "A retired actor returns home.",
-        },
-    ).json()
-    response = client.get(f"/api/v1/projects/{project['id']}/export", params={"format": "pdf"})
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "invalid_export_format"
-
-
-def test_fix_range_must_cover_issue_excerpt(client):
-    chapter_id = create_seeded_chapter(client)
-    scan = client.post(f"/api/v1/chapters/{chapter_id}/qa-scans").json()
-    issue = scan["issues"][0]
-    response = client.post(
-        f"/api/v1/qa-issues/{issue['id']}/fix",
-        json={
-            "strategy": "tighten",
-            "allowed_range": {
-                "start": issue["start_offset"] + 1,
-                "end": issue["end_offset"] - 1,
+def test_publish_promotes_draft_without_exposing_unpublished_changes() -> None:
+    original_points = store.published_config.tasks["complete_profile"].reward_points
+    services.update_task_config(
+        [
+            {
+                "task_code": "daily_check_in",
+                "title": "Daily Check-in",
+                "task_type": "check_in",
+                "reward_points": 10,
+                "daily_limit": 1,
+                "is_enabled": True,
             },
-        },
+            {
+                "task_code": "complete_profile",
+                "title": "Complete Profile",
+                "task_type": "manual",
+                "reward_points": 99,
+                "daily_limit": 1,
+                "is_enabled": True,
+            },
+        ],
+        "admin-1",
+        "admin",
+        "req-update",
     )
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "range_too_narrow"
+    assert store.published_config.tasks["complete_profile"].reward_points == original_points

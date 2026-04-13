@@ -9,6 +9,6 @@ from apps.backend.api.routes import router
 
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="FEAT-0001 Story Workbench")
+app = FastAPI(title="FEAT-0002 Membership System")
 register_error_handlers(app)
 app.include_router(router)

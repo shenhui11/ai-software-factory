@@ -6,101 +6,52 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class CharacterProfilePayload(BaseModel):
-    name: str
-    role: str
-    personality_traits: list[str]
-    speech_style: str
-    motivation: str
-    key_relationships: list[str]
-    notes: str
-
-
-class ProjectCreateRequest(BaseModel):
-    title: str
-    genre: str
-    style: str
-    target_audience: str
-    length_target: str
-    tone: str
-    premise: str
-
-
-class ProjectPatchRequest(BaseModel):
-    title: str | None = None
-    genre: str | None = None
-    style: str | None = None
-    target_audience: str | None = None
-    length_target: str | None = None
-    tone: str | None = None
-    premise: str | None = None
-
-
-class CanonRequest(BaseModel):
-    world_summary: str
-    style_constraints: list[str]
-    narrative_rules: list[str]
-    characters: list[CharacterProfilePayload]
-
-
-class ChapterCreateRequest(BaseModel):
-    outline_item_id: str | None = None
-    title: str
-    summary: str
-
-
-class ChapterDraftRequest(BaseModel):
-    chapter_goal: str
-    context_window_strategy: str
-
-
-class ChapterPatchRequest(BaseModel):
-    content: str
-
-
-class ParagraphEditRequest(BaseModel):
-    selection_start: int
-    selection_end: int
-    operation: Literal[
-        "rewrite",
-        "expand",
-        "compress",
-        "tone_shift",
-        "style_shift",
-    ]
-    instruction: str = ""
-
-
-class FixRange(BaseModel):
-    start: int
-    end: int
-
-
-class IssueFixRequest(BaseModel):
-    strategy: str
-    allowed_range: FixRange
-
-
-class SnapshotRequest(BaseModel):
-    version_note: str = Field(min_length=1)
-
-
 class ErrorEnvelope(BaseModel):
     error: dict[str, object]
     request_id: str
 
 
-class VersionDiffResponse(BaseModel):
-    version_id: str
-    base_version_id: str
-    diff: list[str]
+class TaskConfigPayload(BaseModel):
+    task_code: str
+    title: str
+    task_type: Literal["check_in", "manual"]
+    reward_points: int = Field(ge=0)
+    daily_limit: int = Field(ge=1)
+    is_enabled: bool
 
 
-class ExportResponse(BaseModel):
-    format: str
-    content: str
+class LevelConfigPayload(BaseModel):
+    level_code: str
+    level_name: str
+    growth_threshold: int = Field(ge=0)
+    description: str
 
 
-class MetadataResponse(BaseModel):
-    id: str
-    created_at: datetime
+class BenefitConfigPayload(BaseModel):
+    benefit_code: str
+    title: str
+    description: str
+    is_enabled: bool
+
+
+class BenefitMappingPayload(BaseModel):
+    level_code: str
+    benefit_codes: list[str]
+
+
+class UpdateTasksRequest(BaseModel):
+    tasks: list[TaskConfigPayload]
+
+
+class UpdateLevelsRequest(BaseModel):
+    levels: list[LevelConfigPayload]
+
+
+class UpdateBenefitsRequest(BaseModel):
+    benefits: list[BenefitConfigPayload]
+    mappings: list[BenefitMappingPayload]
+
+
+class PublishConfigResponse(BaseModel):
+    version: int
+    published_at: datetime

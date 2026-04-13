@@ -1,18 +1,63 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Any
+from copy import deepcopy
 
 from apps.backend.domain.models import (
-    Chapter,
-    ChapterVersion,
-    ParagraphEditSuggestion,
-    QaIssue,
-    QaScan,
-    StoryCanon,
-    StoryOutline,
-    StoryProject,
+    AuditEvent,
+    BenefitDefinition,
+    BenefitMapping,
+    DraftConfig,
+    LedgerEntry,
+    LevelRule,
+    MemberProfile,
+    PointsAccount,
+    PublishedConfig,
+    RewardRecord,
+    TaskDefinition,
+    TaskRecord,
+    utc_now,
 )
+
+
+def build_default_config() -> PublishedConfig:
+    tasks = {
+        "daily_check_in": TaskDefinition(
+            task_code="daily_check_in",
+            title="Daily Check-in",
+            task_type="check_in",
+            reward_points=10,
+            daily_limit=1,
+        ),
+        "complete_profile": TaskDefinition(
+            task_code="complete_profile",
+            title="Complete Profile",
+            task_type="manual",
+            reward_points=30,
+            daily_limit=1,
+        ),
+    }
+    levels = [
+        LevelRule("L1", "Regular", 0, "Default membership level"),
+        LevelRule("L2", "Growth Member", 40, "Unlocked after earning 40 growth"),
+    ]
+    benefits = {
+        "member_badge": BenefitDefinition(
+            benefit_code="member_badge",
+            title="Growth Member Badge",
+            description="Display the growth member badge in the dashboard.",
+        )
+    }
+    mappings = {
+        "L2": BenefitMapping(level_code="L2", benefit_codes=["member_badge"])
+    }
+    return PublishedConfig(
+        version=1,
+        published_at=utc_now(),
+        tasks=tasks,
+        levels=levels,
+        benefits=benefits,
+        benefit_mappings=mappings,
+    )
 
 
 class InMemoryStore:
@@ -20,26 +65,22 @@ class InMemoryStore:
         self.reset()
 
     def reset(self) -> None:
-        self.projects: dict[str, StoryProject] = {}
-        self.canons: dict[str, StoryCanon] = {}
-        self.outlines: dict[str, StoryOutline] = {}
-        self.chapters: dict[str, Chapter] = {}
-        self.versions: dict[str, ChapterVersion] = {}
-        self.chapter_versions: dict[str, list[str]] = {}
-        self.edit_suggestions: dict[str, ParagraphEditSuggestion] = {}
-        self.scans: dict[str, QaScan] = {}
-        self.chapter_scans: dict[str, list[str]] = {}
-        self.issues: dict[str, QaIssue] = {}
-
-    def dump_project_state(self, project_id: str) -> dict[str, Any]:
-        project = self.projects[project_id]
-        canon = self.canons.get(project_id)
-        outline = self.outlines.get(project_id)
-        return {
-            "project": asdict(project),
-            "canon": asdict(canon) if canon else None,
-            "outline": asdict(outline) if outline else None,
-        }
+        self.member_profiles: dict[str, MemberProfile] = {}
+        self.points_accounts: dict[str, PointsAccount] = {}
+        self.task_records: dict[tuple[str, str, str], TaskRecord] = {}
+        self.ledger_entries: list[LedgerEntry] = []
+        self.reward_records: list[RewardRecord] = []
+        self.audit_events: list[AuditEvent] = []
+        self.request_action_index: dict[tuple[str, str, str], str] = {}
+        self.risk_windows: dict[tuple[str, str], list] = {}
+        default_config = build_default_config()
+        self.published_config = default_config
+        self.draft_config = DraftConfig(
+            tasks=deepcopy(default_config.tasks),
+            levels=deepcopy(default_config.levels),
+            benefits=deepcopy(default_config.benefits),
+            benefit_mappings=deepcopy(default_config.benefit_mappings),
+        )
 
 
 store = InMemoryStore()

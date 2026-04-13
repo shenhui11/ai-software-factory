@@ -21,10 +21,7 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(
-        request: Request,
-        exc: RequestValidationError,
-    ) -> JSONResponse:
+    async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         return build_error_response(
             request=request,
             status_code=422,
@@ -41,7 +38,7 @@ def build_error_response(
     message: str,
     details: dict[str, object],
 ) -> JSONResponse:
-    request_id = str(uuid4())
+    request_id = request.headers.get("X-Request-Id", str(uuid4()))
     return JSONResponse(
         status_code=status_code,
         content={

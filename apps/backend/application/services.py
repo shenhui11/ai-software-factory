@@ -1,42 +1,34 @@
 from __future__ import annotations
 
-import difflib
 import logging
+from copy import deepcopy
 from dataclasses import asdict
+from datetime import timedelta
+from uuid import uuid4
 
 from apps.backend.domain.models import (
-    Chapter,
-    ChapterVersion,
-    CharacterProfile,
-    OutlineChapterItem,
-    ParagraphEditSuggestion,
-    QaIssue,
-    QaScan,
-    StoryCanon,
-    StoryOutline,
-    StoryProject,
+    AuditEvent,
+    BenefitDefinition,
+    BenefitMapping,
+    DraftConfig,
+    LedgerEntry,
+    LevelRule,
+    MemberProfile,
+    PointsAccount,
+    PublishedConfig,
+    RewardRecord,
+    TaskDefinition,
+    TaskRecord,
     utc_now,
 )
 from apps.backend.infrastructure.store import store
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EDIT_OPERATIONS = {
-    "rewrite",
-    "expand",
-    "compress",
-    "tone_shift",
-    "style_shift",
-}
-ALLOWED_EXPORT_FORMATS = {"md", "txt"}
-QA_ISSUE_TYPES = [
-    "logic_gap",
-    "canon_conflict",
-    "plot_discontinuity",
-    "redundancy",
-    "foreshadowing_miss",
-    "voice_drift",
-]
+KNOWN_BENEFIT_CODES = {"member_badge"}
+MAX_LEDGER_LIMIT = 50
+RISK_WINDOW_SECONDS = 10
+RISK_MAX_EVENTS = 3
 
 
 class DomainError(Exception):
@@ -54,489 +46,467 @@ class DomainError(Exception):
         self.status_code = status_code
 
 
-def _get_project(project_id: str) -> StoryProject:
-    project = store.projects.get(project_id)
-    if project is None:
-        raise DomainError("project_not_found", "Project not found.", status_code=404)
-    return project
+def new_request_id() -> str:
+    return str(uuid4())
 
 
-def _get_chapter(chapter_id: str) -> Chapter:
-    chapter = store.chapters.get(chapter_id)
-    if chapter is None:
-        raise DomainError("chapter_not_found", "Chapter not found.", status_code=404)
-    return chapter
+def ensure_member(user_id: str) -> tuple[MemberProfile, PointsAccount]:
+    profile = store.member_profiles.get(user_id)
+    account = store.points_accounts.get(user_id)
+    if profile is None:
+        profile = MemberProfile(user_id=user_id)
+        store.member_profiles[user_id] = profile
+    if account is None:
+        account = PointsAccount(user_id=user_id)
+        store.points_accounts[user_id] = account
+    return profile, account
 
 
-def _get_version(version_id: str) -> ChapterVersion:
-    version = store.versions.get(version_id)
-    if version is None:
-        raise DomainError("version_not_found", "Version not found.", status_code=404)
-    return version
+def get_published_config() -> PublishedConfig:
+    return store.published_config
 
 
-def _get_issue(issue_id: str) -> QaIssue:
-    issue = store.issues.get(issue_id)
-    if issue is None:
-        raise DomainError("issue_not_found", "QA issue not found.", status_code=404)
-    return issue
+def get_active_level(level_code: str) -> LevelRule:
+    for level in get_published_config().levels:
+        if level.level_code == level_code:
+            return level
+    raise DomainError("level_not_found", "Level not found.", {"level_code": level_code}, 404)
 
 
-def _current_content(chapter: Chapter) -> str:
-    if chapter.current_version_id is None:
-        return ""
-    return _get_version(chapter.current_version_id).content
+def list_unlocked_benefits(level_code: str) -> list[BenefitDefinition]:
+    config = get_published_config()
+    mapping = config.benefit_mappings.get(level_code)
+    if mapping is None:
+        return []
+    unlocked: list[BenefitDefinition] = []
+    for benefit_code in mapping.benefit_codes:
+        benefit = config.benefits.get(benefit_code)
+        if benefit and benefit.is_enabled:
+            unlocked.append(benefit)
+    return unlocked
 
 
-def _validate_selection(content: str, start: int, end: int) -> str:
-    if start < 0 or end > len(content) or start >= end:
-        raise DomainError(
-            "invalid_selection",
-            "Selection range is invalid.",
-            details={"selection_start": start, "selection_end": end},
-            status_code=400,
-        )
-    selected = content[start:end]
-    if not selected.strip():
-        raise DomainError(
-            "empty_selection",
-            "Selection must contain non-whitespace content.",
-            status_code=400,
-        )
-    return selected
-
-
-def create_project(payload: dict[str, str]) -> StoryProject:
-    project = StoryProject(**payload)
-    store.projects[project.id] = project
-    store.canons[project.id] = StoryCanon(project_id=project.id)
-    logger.info("project_created", extra={"project_id": project.id})
-    return project
-
-
-def get_project(project_id: str) -> StoryProject:
-    return _get_project(project_id)
-
-
-def update_project(project_id: str, payload: dict[str, str]) -> StoryProject:
-    project = _get_project(project_id)
-    for key, value in payload.items():
-        setattr(project, key, value)
-    project.updated_at = utc_now()
-    return project
-
-
-def get_or_update_canon(
-    project_id: str,
-    payload: dict[str, object] | None = None,
-) -> StoryCanon:
-    _get_project(project_id)
-    canon = store.canons[project_id]
-    if payload is None:
-        return canon
-    canon.world_summary = str(payload["world_summary"])
-    canon.style_constraints = list(payload["style_constraints"])
-    canon.narrative_rules = list(payload["narrative_rules"])
-    canon.characters = [
-        CharacterProfile(**character)
-        for character in list(payload["characters"])
-    ]
-    canon.updated_at = utc_now()
-    return canon
-
-
-def generate_outline(project_id: str) -> StoryOutline:
-    project = _get_project(project_id)
-    canon = store.canons[project_id]
-    character_summaries = [
-        f"{character.name}: {character.role}, {character.motivation}"
-        for character in canon.characters
-    ] or [f"Primary cast fits the {project.genre} premise."]
-    chapters = [
-        OutlineChapterItem(
-            sequence_no=index,
-            title=f"Chapter {index}: {goal}",
-            summary=f"{project.tone}推进 {goal.lower()}",
-            goal=goal,
-        )
-        for index, goal in enumerate(
-            ["Setup", "Complication", "Decision", "Consequence"], start=1
-        )
-    ]
-    outline = StoryOutline(
-        project_id=project.id,
-        logline=(
-            f"A {project.style} {project.genre} story where "
-            f"{project.premise.lower().rstrip('。.')}"
-        ),
-        core_conflict=(
-            f"The protagonist must balance {project.tone} choices against "
-            f"the world rules: {canon.world_summary or 'an unstable world order'}."
-        ),
-        character_summaries=character_summaries,
-        chapters=chapters,
-    )
-    store.outlines[project.id] = outline
-    project.status = "outlined"
-    project.updated_at = utc_now()
-    return outline
-
-
-def get_outline(project_id: str) -> StoryOutline:
-    _get_project(project_id)
-    outline = store.outlines.get(project_id)
-    if outline is None:
-        raise DomainError("outline_not_found", "Outline not found.", status_code=404)
-    return outline
-
-
-def create_chapter(project_id: str, payload: dict[str, str | None]) -> Chapter:
-    _get_project(project_id)
-    chapter = Chapter(
-        project_id=project_id,
-        outline_item_id=payload.get("outline_item_id"),
-        title=str(payload["title"]),
-        summary=str(payload["summary"]),
-    )
-    store.chapters[chapter.id] = chapter
-    store.chapter_versions[chapter.id] = []
-    return chapter
-
-
-def generate_chapter_draft(chapter_id: str, payload: dict[str, str]) -> ChapterVersion:
-    chapter = _get_chapter(chapter_id)
-    outline = store.outlines.get(chapter.project_id)
-    if outline is None:
-        raise DomainError(
-            "outline_required",
-            "Generate the outline before generating a chapter draft.",
-            status_code=409,
-        )
-    canon = store.canons[chapter.project_id]
-    content = "\n\n".join(
-        [
-            f"{chapter.title}",
-            f"{payload['chapter_goal']} The scene follows {payload['context_window_strategy']}.",
-            (
-                f"World context: {canon.world_summary or 'No world summary yet.'} "
-                f"Style constraints: {', '.join(canon.style_constraints) or 'none'}."
-            ),
-            f"Summary seed: {chapter.summary}",
-        ]
-    )
-    version = _create_version(
-        chapter_id=chapter.id,
-        content=content,
-        source_type="draft_generation",
-        source_ref_id=chapter.outline_item_id,
-        author_type="system",
-        version_note="Initial chapter draft",
-        activate=True,
-    )
-    return version
-
-
-def get_chapter(chapter_id: str) -> dict[str, object]:
-    chapter = _get_chapter(chapter_id)
+def get_member_summary(user_id: str) -> dict[str, object]:
+    profile, account = ensure_member(user_id)
+    current_level = get_active_level(profile.current_level)
+    next_level = _get_next_level(profile.growth_value)
+    growth_to_next = 0 if next_level is None else next_level.growth_threshold - profile.growth_value
     return {
-        "chapter": chapter,
-        "content": _current_content(chapter),
-        "current_version": (
-            _get_version(chapter.current_version_id)
-            if chapter.current_version_id is not None
-            else None
-        ),
+        "membership_status": profile.membership_status,
+        "current_level": profile.current_level,
+        "current_level_name": current_level.level_name,
+        "growth_value": profile.growth_value,
+        "next_level": None if next_level is None else next_level.level_code,
+        "growth_to_next_level": growth_to_next,
+        "points_balance": account.points_balance,
+        "unlocked_benefits": [asdict(item) for item in list_unlocked_benefits(profile.current_level)],
     }
 
 
-def save_chapter(chapter_id: str, content: str) -> ChapterVersion:
-    chapter = _get_chapter(chapter_id)
-    version = _create_version(
-        chapter_id=chapter.id,
-        content=content,
-        source_type="manual_edit",
-        source_ref_id=chapter.current_version_id,
-        author_type="user",
-        version_note="Manual chapter save",
-        activate=True,
-    )
-    return version
-
-
-def create_paragraph_edit(chapter_id: str, payload: dict[str, object]) -> ParagraphEditSuggestion:
-    chapter = _get_chapter(chapter_id)
-    if chapter.current_version_id is None:
-        raise DomainError(
-            "chapter_content_required",
-            "Chapter content is required before editing.",
-            status_code=409,
-        )
-    content = _current_content(chapter)
-    operation = str(payload["operation"])
-    if operation not in ALLOWED_EDIT_OPERATIONS:
-        raise DomainError(
-            "invalid_operation",
-            "Unsupported edit operation.",
-            details={"operation": operation},
-            status_code=400,
-        )
-    start = int(payload["selection_start"])
-    end = int(payload["selection_end"])
-    selected = _validate_selection(content, start, end)
-    candidate = _build_edit_candidate(
-        operation=operation,
-        selected=selected,
-        instruction=str(payload.get("instruction", "")),
-    )
-    suggestion = ParagraphEditSuggestion(
-        chapter_id=chapter.id,
-        base_version_id=chapter.current_version_id,
-        selection_start=start,
-        selection_end=end,
-        operation=operation,
-        instruction=str(payload.get("instruction", "")),
-        candidate_content=candidate,
-    )
-    store.edit_suggestions[suggestion.id] = suggestion
-    return suggestion
-
-
-def create_qa_scan(chapter_id: str) -> QaScan:
-    chapter = _get_chapter(chapter_id)
-    if chapter.current_version_id is None:
-        raise DomainError(
-            "chapter_content_required",
-            "Chapter content is required before QA scan.",
-            status_code=409,
-        )
-    content = _current_content(chapter)
-    issues = _build_qa_issues(chapter.id, chapter.current_version_id, content)
-    scan = QaScan(
-        chapter_id=chapter.id,
-        base_version_id=chapter.current_version_id,
-        status="completed",
-        summary=f"Detected {len(issues)} issue(s) for review.",
-        issues=issues,
-    )
-    for issue in issues:
-        issue.scan_id = scan.id
-    store.scans[scan.id] = scan
-    store.chapter_scans.setdefault(chapter.id, []).append(scan.id)
-    for issue in issues:
-        store.issues[issue.id] = issue
-    return scan
-
-
-def get_qa_scan(chapter_id: str, scan_id: str) -> QaScan:
-    _get_chapter(chapter_id)
-    scan = store.scans.get(scan_id)
-    if scan is None or scan.chapter_id != chapter_id:
-        raise DomainError("scan_not_found", "QA scan not found.", status_code=404)
-    return scan
-
-
-def create_issue_fix(issue_id: str, allowed_range: dict[str, int], strategy: str) -> dict[str, object]:
-    issue = _get_issue(issue_id)
-    chapter = _get_chapter(issue.chapter_id)
-    base_version = _get_version(store.scans[issue.scan_id].base_version_id)
-    range_start = int(allowed_range["start"])
-    range_end = int(allowed_range["end"])
-    if range_start > issue.start_offset or range_end < issue.end_offset:
-        raise DomainError(
-            "range_too_narrow",
-            "Allowed range must fully cover the issue excerpt.",
-            status_code=400,
-        )
-    if range_start < 0 or range_end > len(base_version.content) or range_start >= range_end:
-        raise DomainError(
-            "invalid_fix_range",
-            "Allowed fix range is invalid.",
-            status_code=400,
-        )
-    excerpt = base_version.content[range_start:range_end]
-    candidate = excerpt + f"\n[Fix applied: {strategy}. Suggestion: {issue.suggested_fix}]"
-    version = _create_version(
-        chapter_id=chapter.id,
-        content=_replace_range(base_version.content, range_start, range_end, candidate),
-        source_type="qa_fix",
-        source_ref_id=issue.id,
-        author_type="system",
-        version_note=f"Fix candidate for {issue.issue_type}",
-        activate=False,
-    )
+def get_dashboard(user_id: str) -> dict[str, object]:
+    profile, account = ensure_member(user_id)
+    tasks = list_tasks(user_id)
+    rewards = [
+        asdict(record)
+        for record in sorted(
+            [reward for reward in store.reward_records if reward.user_id == user_id],
+            key=lambda item: item.created_at,
+            reverse=True,
+        )[:5]
+    ]
+    summary = get_member_summary(user_id)
     return {
-        "version": version,
-        "affected_range": {"start": range_start, "end": range_end},
+        "membership_status": summary["membership_status"],
+        "current_level": summary["current_level"],
+        "growth_value": summary["growth_value"],
+        "next_level": summary["next_level"],
+        "growth_to_next_level": summary["growth_to_next_level"],
+        "points_balance": account.points_balance,
+        "points_earned_total": account.points_earned_total,
+        "unlocked_benefits": summary["unlocked_benefits"],
+        "pending_tasks": [task for task in tasks if task["status"] != "completed"],
+        "recent_rewards": rewards,
     }
 
 
-def list_versions(chapter_id: str) -> list[ChapterVersion]:
-    _get_chapter(chapter_id)
-    version_ids = store.chapter_versions.get(chapter_id, [])
-    return [_get_version(version_id) for version_id in version_ids]
-
-
-def create_snapshot(chapter_id: str, note: str) -> ChapterVersion:
-    chapter = _get_chapter(chapter_id)
-    if chapter.current_version_id is None:
-        raise DomainError(
-            "chapter_content_required",
-            "Chapter content is required before snapshot.",
-            status_code=409,
+def list_tasks(user_id: str) -> list[dict[str, object]]:
+    ensure_member(user_id)
+    config = get_published_config()
+    today = utc_now().date().isoformat()
+    tasks: list[dict[str, object]] = []
+    for task in config.tasks.values():
+        if not task.is_enabled:
+            continue
+        record = store.task_records.get((user_id, task.task_code, today))
+        progress = 0 if record is None else record.progress
+        status = "pending"
+        if progress >= task.daily_limit:
+            status = "completed"
+        tasks.append(
+            {
+                "task_code": task.task_code,
+                "title": task.title,
+                "task_type": task.task_type,
+                "reward_points": task.reward_points,
+                "status": status,
+                "progress": progress,
+                "daily_reset_at": today,
+            }
         )
-    return _create_version(
-        chapter_id=chapter.id,
-        content=_current_content(chapter),
-        source_type="snapshot",
-        source_ref_id=chapter.current_version_id,
-        author_type="user",
-        version_note=note,
-        activate=False,
+    return sorted(tasks, key=lambda item: item["task_code"])
+
+
+def get_points_ledger(
+    user_id: str,
+    change_type: str | None,
+    limit: int,
+    cursor: str | None,
+) -> dict[str, object]:
+    ensure_member(user_id)
+    if limit < 1 or limit > MAX_LEDGER_LIMIT:
+        raise DomainError("invalid_limit", "Limit is out of range.", {"limit": limit}, 400)
+    if change_type not in {None, "earn", "spend"}:
+        raise DomainError(
+            "invalid_change_type",
+            "change_type is invalid.",
+            {"change_type": change_type},
+            400,
+        )
+    if cursor not in {None, ""}:
+        raise DomainError("invalid_cursor", "Cursor is invalid.", {"cursor": cursor}, 400)
+    entries = [item for item in store.ledger_entries if item.user_id == user_id]
+    if change_type:
+        entries = [item for item in entries if item.change_type == change_type]
+    items = [asdict(item) for item in sorted(entries, key=lambda item: item.created_at, reverse=True)[:limit]]
+    return {"items": items, "next_cursor": None}
+
+
+def get_rewards(user_id: str) -> dict[str, object]:
+    ensure_member(user_id)
+    rewards = [asdict(item) for item in store.reward_records if item.user_id == user_id]
+    rewards.sort(key=lambda item: item["created_at"], reverse=True)
+    return {"items": rewards}
+
+
+def perform_check_in(user_id: str, actor_role: str, request_id: str) -> dict[str, object]:
+    return _complete_task(
+        user_id=user_id,
+        actor_role=actor_role,
+        task_code="daily_check_in",
+        source_type="check_in",
+        request_id=request_id,
     )
 
 
-def get_diff(version_id: str, base_version_id: str) -> dict[str, object]:
-    target = _get_version(version_id)
-    base = _get_version(base_version_id)
-    if target.chapter_id != base.chapter_id:
-        raise DomainError(
-            "cross_chapter_diff_forbidden",
-            "Cannot diff versions from different chapters.",
-            status_code=400,
-        )
-    diff = list(
-        difflib.unified_diff(
-            base.content.splitlines(),
-            target.content.splitlines(),
-            fromfile=base.id,
-            tofile=target.id,
-            lineterm="",
-        )
+def perform_task_completion(
+    user_id: str,
+    actor_role: str,
+    task_code: str,
+    request_id: str,
+) -> dict[str, object]:
+    return _complete_task(
+        user_id=user_id,
+        actor_role=actor_role,
+        task_code=task_code,
+        source_type="task_completion",
+        request_id=request_id,
     )
-    return {"version_id": target.id, "base_version_id": base.id, "diff": diff}
 
 
-def restore_version(version_id: str) -> ChapterVersion:
-    source = _get_version(version_id)
-    chapter = _get_chapter(source.chapter_id)
-    restored = _create_version(
-        chapter_id=chapter.id,
-        content=source.content,
-        source_type="restore",
-        source_ref_id=source.id,
-        author_type="system",
-        version_note=f"Restored from {source.id}",
-        activate=True,
-    )
-    return restored
+def get_admin_member_details(target_user_id: str) -> dict[str, object]:
+    if target_user_id not in store.member_profiles and target_user_id not in store.points_accounts:
+        raise DomainError("member_not_found", "Member not found.", {"user_id": target_user_id}, 404)
+    summary = get_member_summary(target_user_id)
+    return {
+        "member": summary,
+        "tasks": list_tasks(target_user_id),
+        "ledger": get_points_ledger(target_user_id, None, 20, None)["items"],
+    }
 
 
-def export_project(project_id: str, export_format: str) -> dict[str, str]:
-    project = _get_project(project_id)
-    if export_format not in ALLOWED_EXPORT_FORMATS:
-        raise DomainError(
-            "invalid_export_format",
-            "Unsupported export format.",
-            details={"format": export_format},
-            status_code=400,
+def get_config_snapshot() -> dict[str, object]:
+    config = get_published_config()
+    return {
+        "published_version": config.version,
+        "published_at": config.published_at,
+        "tasks": [asdict(item) for item in config.tasks.values()],
+        "levels": [asdict(item) for item in config.levels],
+        "benefits": [asdict(item) for item in config.benefits.values()],
+        "benefit_mappings": [asdict(item) for item in config.benefit_mappings.values()],
+    }
+
+
+def update_task_config(tasks_payload: list[dict[str, object]], actor_user_id: str, actor_role: str, request_id: str) -> dict[str, object]:
+    draft = _get_draft_copy()
+    new_tasks: dict[str, TaskDefinition] = {}
+    for item in tasks_payload:
+        payload = _coerce_payload(item)
+        task = TaskDefinition(
+            task_code=str(payload["task_code"]),
+            title=str(payload["title"]),
+            task_type=str(payload["task_type"]),
+            reward_points=int(payload["reward_points"]),
+            daily_limit=int(payload["daily_limit"]),
+            is_enabled=bool(payload["is_enabled"]),
         )
-    chapters = [
-        chapter
-        for chapter in store.chapters.values()
-        if chapter.project_id == project_id and chapter.current_version_id is not None
+        new_tasks[task.task_code] = task
+    draft.tasks = new_tasks
+    store.draft_config = draft
+    _add_audit(actor_user_id, actor_role, "member_config_tasks_updated", request_id, {"tasks": str(len(new_tasks))})
+    return {"draft_tasks": [asdict(item) for item in new_tasks.values()]}
+
+
+def update_level_config(levels_payload: list[dict[str, object]], actor_user_id: str, actor_role: str, request_id: str) -> dict[str, object]:
+    draft = _get_draft_copy()
+    draft.levels = [
+        LevelRule(
+            level_code=str(_coerce_payload(item)["level_code"]),
+            level_name=str(_coerce_payload(item)["level_name"]),
+            growth_threshold=int(_coerce_payload(item)["growth_threshold"]),
+            description=str(_coerce_payload(item)["description"]),
+        )
+        for item in levels_payload
     ]
-    chapters.sort(key=lambda chapter: chapter.created_at)
-    if export_format == "md":
-        lines = [f"# {project.title}", "", project.premise]
-        for chapter in chapters:
-            lines.extend(["", f"## {chapter.title}", "", _current_content(chapter)])
-        return {"format": export_format, "content": "\n".join(lines)}
-    body = [project.title, project.premise]
-    for chapter in chapters:
-        body.extend(["", chapter.title, _current_content(chapter)])
-    return {"format": export_format, "content": "\n".join(body)}
+    store.draft_config = draft
+    _add_audit(actor_user_id, actor_role, "member_config_levels_updated", request_id, {"levels": str(len(draft.levels))})
+    return {"draft_levels": [asdict(item) for item in draft.levels]}
 
 
-def _create_version(
-    chapter_id: str,
-    content: str,
-    source_type: str,
-    source_ref_id: str | None,
-    author_type: str,
-    version_note: str,
-    activate: bool,
-) -> ChapterVersion:
-    version = ChapterVersion(
-        chapter_id=chapter_id,
-        content=content,
+def update_benefit_config(
+    benefits_payload: list[dict[str, object]],
+    mappings_payload: list[dict[str, object]],
+    actor_user_id: str,
+    actor_role: str,
+    request_id: str,
+) -> dict[str, object]:
+    draft = _get_draft_copy()
+    draft.benefits = {
+        str(_coerce_payload(item)["benefit_code"]): BenefitDefinition(
+            benefit_code=str(_coerce_payload(item)["benefit_code"]),
+            title=str(_coerce_payload(item)["title"]),
+            description=str(_coerce_payload(item)["description"]),
+            is_enabled=bool(_coerce_payload(item)["is_enabled"]),
+        )
+        for item in benefits_payload
+    }
+    draft.benefit_mappings = {
+        str(_coerce_payload(item)["level_code"]): BenefitMapping(
+            level_code=str(_coerce_payload(item)["level_code"]),
+            benefit_codes=[str(code) for code in _coerce_payload(item)["benefit_codes"]],
+        )
+        for item in mappings_payload
+    }
+    store.draft_config = draft
+    _add_audit(actor_user_id, actor_role, "member_config_benefits_updated", request_id, {"benefits": str(len(draft.benefits))})
+    return {
+        "draft_benefits": [asdict(item) for item in draft.benefits.values()],
+        "draft_mappings": [asdict(item) for item in draft.benefit_mappings.values()],
+    }
+
+
+def publish_config(actor_user_id: str, actor_role: str, request_id: str) -> dict[str, object]:
+    draft = _get_draft_copy()
+    _validate_draft_config(draft)
+    version = store.published_config.version + 1
+    published = PublishedConfig(
+        version=version,
+        published_at=utc_now(),
+        tasks=deepcopy(draft.tasks),
+        levels=deepcopy(draft.levels),
+        benefits=deepcopy(draft.benefits),
+        benefit_mappings=deepcopy(draft.benefit_mappings),
+    )
+    store.published_config = published
+    for profile in store.member_profiles.values():
+        profile.current_config_version = version
+    _add_audit(actor_user_id, actor_role, "member_config_published", request_id, {"version": str(version)})
+    return {"version": version, "published_at": published.published_at}
+
+
+def get_audit_events() -> list[dict[str, object]]:
+    return [asdict(item) for item in store.audit_events]
+
+
+def _complete_task(user_id: str, actor_role: str, task_code: str, source_type: str, request_id: str) -> dict[str, object]:
+    profile, account = ensure_member(user_id)
+    task = get_published_config().tasks.get(task_code)
+    if task is None:
+        raise DomainError("task_not_found", "Task not found.", {"task_code": task_code}, 404)
+    if not task.is_enabled:
+        raise DomainError("task_disabled", "Task is disabled.", {"task_code": task_code}, 400)
+    action_key = (user_id, source_type, request_id)
+    if action_key in store.request_action_index:
+        return _build_idempotent_response(profile, account, task_code)
+    _enforce_risk_control(user_id, source_type, request_id)
+    today = utc_now().date().isoformat()
+    record_key = (user_id, task.task_code, today)
+    record = store.task_records.get(record_key)
+    if record is None:
+        record = TaskRecord(user_id=user_id, task_code=task.task_code, task_date=today)
+        store.task_records[record_key] = record
+    if record.progress >= task.daily_limit:
+        raise DomainError("daily_limit_reached", "Daily limit reached.", {"task_code": task.task_code}, 409)
+    record.progress += 1
+    record.status = "completed" if record.progress >= task.daily_limit else "pending"
+    record.completed_at = utc_now()
+    record.request_ids.add(request_id)
+    store.request_action_index[action_key] = task.task_code
+    granted_points = task.reward_points
+    account.points_balance += granted_points
+    account.points_earned_total += granted_points
+    account.last_earned_at = utc_now()
+    account.updated_at = utc_now()
+    profile.growth_value += granted_points
+    previous_level = profile.current_level
+    level_up, unlocked = _evaluate_level(profile, request_id)
+    profile.updated_at = utc_now()
+    ledger = LedgerEntry(
+        user_id=user_id,
+        request_id=request_id,
         source_type=source_type,
-        source_ref_id=source_ref_id,
-        author_type=author_type,
-        version_note=version_note,
+        source_ref_id=task.task_code,
+        change_type="earn",
+        points_delta=granted_points,
+        balance_after=account.points_balance,
     )
-    store.versions[version.id] = version
-    store.chapter_versions.setdefault(chapter_id, []).append(version.id)
-    chapter = _get_chapter(chapter_id)
-    if activate:
-        chapter.current_version_id = version.id
-        chapter.updated_at = utc_now()
-    return version
+    store.ledger_entries.append(ledger)
+    _add_audit(user_id, actor_role, f"{source_type}_completed", request_id, {"task_code": task.task_code})
+    logger.info("points_granted", extra={"user_id": user_id, "task_code": task.task_code, "request_id": request_id})
+    return {
+        "success": True,
+        "task_code": task.task_code,
+        "completion_status": record.status,
+        "granted_points": granted_points,
+        "points_balance": account.points_balance,
+        "current_level": profile.current_level,
+        "previous_level": previous_level,
+        "level_up": level_up,
+        "unlocked_benefits": unlocked,
+        "reward_result": {"granted": True, "reward_count": len(unlocked)},
+        "request_id": request_id,
+    }
 
 
-def _build_edit_candidate(operation: str, selected: str, instruction: str) -> str:
-    if operation == "rewrite":
-        return f"Rewritten: {selected} ({instruction})".strip()
-    if operation == "expand":
-        return f"{selected}\nExpanded detail: {instruction or 'add sensory detail'}"
-    if operation == "compress":
-        return f"Compressed: {selected[: max(20, len(selected) // 2)].strip()}"
-    if operation == "tone_shift":
-        return f"Tone-adjusted: {selected} [{instruction or 'shift tone'}]"
-    return f"Style-adjusted: {selected} [{instruction or 'shift style'}]"
+def _build_idempotent_response(profile: MemberProfile, account: PointsAccount, task_code: str) -> dict[str, object]:
+    return {
+        "success": True,
+        "task_code": task_code,
+        "completion_status": "completed",
+        "granted_points": 0,
+        "points_balance": account.points_balance,
+        "current_level": profile.current_level,
+        "level_up": False,
+        "unlocked_benefits": [],
+        "reward_result": {"granted": False, "reward_count": 0},
+    }
 
 
-def _build_qa_issues(
-    chapter_id: str,
-    version_id: str,
-    content: str,
-) -> list[QaIssue]:
-    excerpt = content[: min(len(content), 120)] or "No content"
-    issue_map = [
-        ("logic_gap", "medium", "Logic jump", "The transition needs an explicit bridge."),
-        ("canon_conflict", "high", "Canon conflict", "The scene drifts from the canon."),
-        ("plot_discontinuity", "medium", "Plot break", "The plot consequence is underdeveloped."),
-        ("redundancy", "low", "Repeated info", "The chapter repeats known information."),
-        ("foreshadowing_miss", "medium", "Loose foreshadowing", "A setup item is not paid off."),
-        ("voice_drift", "medium", "Voice drift", "Character voice drifts from the canon."),
-    ]
-    issues: list[QaIssue] = []
-    issue_window = max(20, len(excerpt))
-    for index, (issue_type, severity, title, description) in enumerate(issue_map):
-        start = min(index * 5, max(0, len(content) - 1))
-        end = min(len(content), start + issue_window)
-        if start == end:
-            start = 0
-            end = len(content)
-        issues.append(
-            QaIssue(
-                scan_id="pending",
-                chapter_id=chapter_id,
-                issue_type=issue_type,
-                severity=severity,
-                title=title,
-                description=description,
-                evidence_excerpt=content[start:end] or excerpt,
-                suggested_fix=f"Clarify and tighten the text for {issue_type}.",
-                start_offset=start,
-                end_offset=end,
-            )
+def _evaluate_level(profile: MemberProfile, request_id: str) -> tuple[bool, list[dict[str, object]]]:
+    target_level = _resolve_level(profile.growth_value)
+    if target_level.level_code == profile.current_level:
+        profile.membership_status = "growth_member" if profile.current_level != "L1" else "regular"
+        return False, []
+    profile.current_level = target_level.level_code
+    profile.membership_status = "growth_member"
+    profile.last_level_up_at = utc_now()
+    unlocked = []
+    for benefit in list_unlocked_benefits(target_level.level_code):
+        reward = RewardRecord(
+            user_id=profile.user_id,
+            request_id=request_id,
+            reward_type="benefit_unlock",
+            reward_code=benefit.benefit_code,
+            title=benefit.title,
+            context={"level_code": target_level.level_code},
         )
-    return issues
+        store.reward_records.append(reward)
+        unlocked.append(asdict(benefit))
+    _add_audit(profile.user_id, "user", "member_level_up", request_id, {"level_code": target_level.level_code})
+    logger.info("member_level_up", extra={"user_id": profile.user_id, "level_code": target_level.level_code})
+    return True, unlocked
 
 
-def _replace_range(content: str, start: int, end: int, replacement: str) -> str:
-    return f"{content[:start]}{replacement}{content[end:]}"
+def _resolve_level(growth_value: int) -> LevelRule:
+    levels = sorted(get_published_config().levels, key=lambda item: item.growth_threshold)
+    active = levels[0]
+    for level in levels:
+        if growth_value >= level.growth_threshold:
+            active = level
+    return active
 
 
-def serialize_entity(entity: object) -> dict[str, object]:
-    return asdict(entity)
+def _get_next_level(growth_value: int) -> LevelRule | None:
+    for level in sorted(get_published_config().levels, key=lambda item: item.growth_threshold):
+        if level.growth_threshold > growth_value:
+            return level
+    return None
+
+
+def _enforce_risk_control(user_id: str, action: str, request_id: str) -> None:
+    key = (user_id, action)
+    now = utc_now()
+    window = store.risk_windows.setdefault(key, [])
+    window[:] = [item for item in window if (now - item).total_seconds() < RISK_WINDOW_SECONDS]
+    if len(window) >= RISK_MAX_EVENTS:
+        raise DomainError(
+            "risk_control_blocked",
+            "Request blocked by risk control.",
+            {"action": action, "request_id": request_id},
+            429,
+        )
+    window.append(now)
+
+
+def _get_draft_copy() -> DraftConfig:
+    return DraftConfig(
+        tasks=deepcopy(store.draft_config.tasks),
+        levels=deepcopy(store.draft_config.levels),
+        benefits=deepcopy(store.draft_config.benefits),
+        benefit_mappings=deepcopy(store.draft_config.benefit_mappings),
+    )
+
+
+def _validate_draft_config(draft: DraftConfig) -> None:
+    if not draft.tasks:
+        raise DomainError("config_validation_failed", "At least one task is required.", {"field": "tasks"}, 400)
+    if not draft.levels:
+        raise DomainError("config_validation_failed", "At least one level is required.", {"field": "levels"}, 400)
+    sorted_levels = sorted(draft.levels, key=lambda item: item.growth_threshold)
+    seen_levels: set[str] = set()
+    previous_threshold = -1
+    for level in sorted_levels:
+        if level.level_code in seen_levels:
+            raise DomainError("config_validation_failed", "Duplicate level_code found.", {"level_code": level.level_code}, 400)
+        if level.growth_threshold < previous_threshold:
+            raise DomainError("config_validation_failed", "Level thresholds must be ascending.", {"level_code": level.level_code}, 400)
+        seen_levels.add(level.level_code)
+        previous_threshold = level.growth_threshold
+    for benefit_code, benefit in draft.benefits.items():
+        if benefit_code not in KNOWN_BENEFIT_CODES:
+            raise DomainError("config_validation_failed", "Unknown benefit_code.", {"benefit_code": benefit_code}, 400)
+    for level_code, mapping in draft.benefit_mappings.items():
+        if level_code not in seen_levels:
+            raise DomainError("config_validation_failed", "Benefit mapping references invalid level.", {"level_code": level_code}, 400)
+        for benefit_code in mapping.benefit_codes:
+            if benefit_code not in draft.benefits:
+                raise DomainError("config_validation_failed", "Benefit mapping references invalid benefit.", {"benefit_code": benefit_code}, 400)
+
+
+def _add_audit(actor_user_id: str, actor_role: str, action: str, request_id: str, details: dict[str, str]) -> None:
+    store.audit_events.append(
+        AuditEvent(
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            action=action,
+            request_id=request_id,
+            details=details,
+        )
+    )
+
+
+def _coerce_payload(item: object) -> dict[str, object]:
+    if isinstance(item, dict):
+        return item
+    if hasattr(item, "model_dump"):
+        return item.model_dump()
+    raise DomainError("invalid_payload", "Unsupported payload type.", {}, 400)
