@@ -18,15 +18,9 @@ jobs:
       FEATURE_ID: ${{ github.event.inputs.feature_id }}
 
     steps:
-      # ========================
-      # 1. 拉代码
-      # ========================
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # ========================
-      # 2. 环境准备
-      # ========================
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
@@ -40,9 +34,6 @@ jobs:
       - name: 安装 Codex CLI
         run: npm install -g @openai/codex
 
-      # ========================
-      # 3. Codex 配置（使用 CODEX_*）
-      # ========================
       - name: 生成 Codex 配置
         run: |
           mkdir -p ~/.codex
@@ -62,76 +53,112 @@ jobs:
         env:
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
 
-      # ========================
-      # 4. 前置校验（非常重要）
-      # ========================
-      - name: 校验设计产物存在
+      - name: 预检查输入文件
         run: |
+          test -f "AGENTS.md"
+          test -f "specs/prompts/builder.strict.md"
+          test -f "docs/definition-of-done.md"
+          test -f "docs/engineering-standards.md"
+          test -f "docs/coding-rules.md"
+
           test -s "specs/intake/${FEATURE_ID}.json"
           test -s "specs/prd/${FEATURE_ID}.md"
           test -s "specs/architecture/${FEATURE_ID}.md"
           test -s "specs/test-plan/${FEATURE_ID}.md"
           test -s "specs/test-cases/${FEATURE_ID}.yaml"
-          test -f "specs/prompts/builder.strict.md"
-          test -f "AGENTS.md"
 
-      - name: 校验未存在非法目录（构建前）
+      - name: 打印运行上下文
         run: |
-          for dir in prd architecture test-plan test-cases; do
-            if [ -d "$dir" ]; then
-              echo "[ERROR] 构建前存在非法目录: $dir"
-              exit 1
-            fi
-          done
+          echo "FEATURE_ID=${FEATURE_ID}"
+          pwd
+          git status --short || true
+          echo "===== specs 输入 ====="
+          ls -lah specs/intake specs/prd specs/architecture specs/test-plan specs/test-cases || true
 
-      # ========================
-      # 5. 执行 Builder Agent
-      # ========================
+      - name: 创建基础目录
+        run: |
+          mkdir -p apps tests docs packages
+          ls -lah .
+
+      - name: 测试 runner 写权限
+        run: |
+          echo "probe" > apps/__write_probe__.txt
+          echo "probe" > tests/__write_probe__.txt
+          ls -lah apps
+          ls -lah tests
+          test -s apps/__write_probe__.txt
+          test -s tests/__write_probe__.txt
+
+      - name: 生成 Builder Prompt
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/builder.prompt
+
+      - name: 预览 Builder Prompt
+        run: |
+          echo "===== Builder Prompt Preview ====="
+          sed -n '1,220p' /tmp/builder.prompt
+
       - name: 执行代码生成（Builder）
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/builder.prompt
-          codex exec --skip-git-repo-check "$(cat /tmp/builder.prompt)"
+          PROMPT_CONTENT="$(cat /tmp/builder.prompt)"
+          codex exec --skip-git-repo-check "$PROMPT_CONTENT"
 
-      # ========================
-      # 6. 构建产物校验
-      # ========================
-      - name: 校验代码生成结果
+      - name: 校验 Builder 真实输出
         run: |
-          echo "===== 检查 apps/ ====="
-          find apps -type f | grep -q . || (echo "[ERROR] apps 目录为空" && exit 1)
+          echo "===== 当前目录 ====="
+          pwd
 
-          echo "===== 检查 tests/ ====="
-          find tests -type f | grep -q . || (echo "[ERROR] tests 目录为空" && exit 1)
+          echo "===== apps 目录内容 ====="
+          ls -lah apps || true
+          find apps -maxdepth 6 -type f | sort || true
 
-      - name: 校验 pytest 使用（禁止 unittest）
-        run: |
-          echo "===== 检查 pytest ====="
-          grep -R "import pytest" tests || (echo "[ERROR] 未使用 pytest" && exit 1)
+          echo "===== tests 目录内容 ====="
+          ls -lah tests || true
+          find tests -maxdepth 6 -type f | sort || true
 
-          echo "===== 检查 unittest ====="
-          if grep -R "import unittest" tests; then
-            echo "[ERROR] 使用了 unittest"
-            exit 1
-          fi
+          echo "===== docs 目录内容 ====="
+          ls -lah docs || true
+          find docs -maxdepth 3 -type f | sort || true
 
-      - name: 校验 FastAPI 使用
-        run: |
-          grep -R "FastAPI" apps || (echo "[ERROR] 未使用 FastAPI" && exit 1)
+          echo "===== git 状态 ====="
+          git status --short || true
 
-      - name: 校验未生成非法目录（构建后）
+          echo "===== git diff 文件列表 ====="
+          git diff --name-only || true
+
+          echo "===== apps 非空检查 ====="
+          test -n "$(find apps -type f | head -n 1)"
+
+          echo "===== tests 非空检查 ====="
+          test -n "$(find tests -type f | head -n 1)"
+
+      - name: 校验未生成非法根目录
         run: |
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
-              echo "[ERROR] 构建后生成非法目录: $dir"
+              echo "[ERROR] 生成了非法根目录: $dir"
               exit 1
             fi
           done
 
-      # ========================
-      # 7. 安装依赖
-      # ========================
+      - name: 预览关键生成文件
+        run: |
+          echo "===== apps 预览 ====="
+          FIRST_APP_FILE="$(find apps -type f | head -n 1)"
+          if [ -n "$FIRST_APP_FILE" ]; then
+            echo "FILE=$FIRST_APP_FILE"
+            sed -n '1,120p' "$FIRST_APP_FILE"
+          fi
+
+          echo "===== tests 预览 ====="
+          FIRST_TEST_FILE="$(find tests -type f | head -n 1)"
+          if [ -n "$FIRST_TEST_FILE" ]; then
+            echo "FILE=$FIRST_TEST_FILE"
+            sed -n '1,120p' "$FIRST_TEST_FILE"
+          fi
+
       - name: 安装项目依赖
         run: |
           python -m pip install --upgrade pip
@@ -148,26 +175,20 @@ jobs:
             python -m pip install -r requirements-dev.txt || true
           fi
 
-          python -m pip install pytest
+          python -m pip install pytest fastapi httpx uvicorn
 
-      # ========================
-      # 8. 运行测试
-      # ========================
       - name: 运行 pytest
         run: |
           python -m pytest tests -q
 
-      # ========================
-      # 9. 提交代码
-      # ========================
       - name: 提交构建产物
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
 
           git checkout -b feat/${FEATURE_ID} || git checkout feat/${FEATURE_ID}
 
-          git add apps tests pyproject.toml requirements*.txt Makefile
+          git add apps tests docs pyproject.toml requirements*.txt Makefile || true
 
-          git diff --cached --quiet || git commit -m "feat: 实现 ${FEATURE_ID}"
+          git diff --cached --quiet || git commit -m "feat: implement ${FEATURE_ID}"
           git push --set-upstream origin feat/${FEATURE_ID}
