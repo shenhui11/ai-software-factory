@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from apps.backend.infrastructure.store import store
+from apps.backend.infrastructure.member_store import member_store
 from apps.backend.main import app
 
 
@@ -43,4 +44,5 @@ class ApiTestClient:
 @pytest.fixture()
 def client() -> ApiTestClient:
     store.reset()
+    member_store.reset()
     yield ApiTestClient()
