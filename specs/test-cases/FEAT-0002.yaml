@@ -7,13 +7,14 @@ scope:
     - 积分账户与积分流水
     - 自动升级与权益映射
     - 奖励记录
-    - 运营配置读取、更新与发布
-    - 权限控制、幂等和基础风控
+    - 运营配置读取、更新、发布与生效
+    - 权限控制、幂等、频控和审计
   out_of_scope:
     - 支付与订阅
-    - 积分商城与库存
+    - 积分商城与库存管理
     - 企业组织和席位
     - 复杂反作弊平台
+    - 多 SKU 权益商品化
 test_cases:
   - id: TC-HP-001
     title: 登录用户查询自己的会员档案
@@ -44,12 +45,12 @@ test_cases:
         - GET /api/v1/members/me/dashboard
     preconditions:
       - 用户已登录
-      - 存在任务、权益或奖励基础数据
+      - 已存在至少一个任务配置和一个权益映射
     steps:
       - 请求会员面板接口
     expected:
       - 返回当前等级、成长进度、积分余额、已解锁权益、待完成任务、最近奖励
-      - 聚合结果中的积分和等级与会员档案一致
+      - 面板中的积分和等级与会员档案一致
 
   - id: TC-HP-003
     title: 查询当前可见任务列表
@@ -82,12 +83,12 @@ test_cases:
     preconditions:
       - 用户已登录
       - 当日尚未签到
-      - 签到任务已启用
+      - 签到任务已启用并已发布
     steps:
       - 提交签到请求
       - 查询积分流水
     expected:
-      - 返回签到成功、发放积分、当前等级、是否升级
+      - 返回 success、granted_points、points_balance、current_level、level_up、unlocked_benefits
       - 积分余额增加
       - 流水中新增 source_type=check_in 的记录
 
@@ -108,9 +109,9 @@ test_cases:
       - 提交任务完成请求
       - 查询积分流水
     expected:
-      - 返回任务完成结果、积分变更、奖励结果、升级结果
+      - 返回 task_code、completion_status、granted_points、points_balance、level_up、reward_result
       - 流水中新增 source_type=task_completion 的记录
-      - 记录包含任务来源、时间和积分数值
+      - 流水记录包含任务来源、时间和积分数值
 
   - id: TC-HP-006
     title: 达到门槛后自动升级并展示权益生效
@@ -126,8 +127,8 @@ test_cases:
         - GET /api/v1/members/me/rewards
     preconditions:
       - 用户已登录
-      - 用户当前积分距离升级门槛仅差一次任务奖励
-      - 已存在已发布的等级和权益映射配置
+      - 用户距离升级门槛仅差一次有效任务奖励
+      - 已存在已发布的等级门槛和权益映射
     steps:
       - 完成触发升级的任务
       - 查询会员档案
@@ -137,10 +138,10 @@ test_cases:
       - 当前等级自动提升
       - membership_status 和 current_level 更新
       - 面板显示新解锁权益
-      - 奖励记录可见升级相关奖励或结果
+      - 奖励记录可见升级相关结果
 
   - id: TC-HP-007
-    title: 查询积分流水与奖励记录
+    title: 查询积分流水和奖励记录
     category: happy_path
     level: integration
     priority: P1
@@ -152,14 +153,14 @@ test_cases:
     preconditions:
       - 用户已有至少一条积分流水和一条奖励记录
     steps:
-      - 查询积分流水
+      - 按 change_type 查询积分流水
       - 查询奖励记录
     expected:
-      - 流水支持按 change_type 过滤并分页返回
+      - 流水支持分页和过滤
       - 奖励记录返回已获得奖励
 
   - id: TC-HP-008
-    title: 运营人员读取并发布会员配置
+    title: 运营人员更新并发布会员配置
     category: happy_path
     level: e2e
     priority: P0
@@ -171,6 +172,7 @@ test_cases:
         - PUT /api/v1/admin/member-config/levels
         - PUT /api/v1/admin/member-config/benefits
         - POST /api/v1/admin/member-config:publish
+        - GET /api/v1/members/me/tasks
     preconditions:
       - 当前登录身份为运营人员
     steps:
@@ -179,10 +181,11 @@ test_cases:
       - 更新等级配置
       - 更新权益映射
       - 发布配置版本
+      - 切换到普通用户请求任务列表
     expected:
       - 配置更新成功
       - 返回新的配置版本号和发布时间
-      - 后续用户侧请求可读取已发布配置
+      - 用户侧读取到已发布的新配置
 
   - id: TC-EDGE-001
     title: 用户重复签到不得重复加分
@@ -193,10 +196,12 @@ test_cases:
       acceptance_criteria: [3, 8, 9]
       api:
         - POST /api/v1/members/me/check-ins
+        - GET /api/v1/members/me/points/ledger
     preconditions:
       - 用户已在同一自然日成功签到一次
     steps:
       - 再次提交签到请求
+      - 查询积分流水
     expected:
       - 第二次请求被拒绝或幂等返回
       - 不新增积分流水
@@ -211,13 +216,15 @@ test_cases:
       acceptance_criteria: [3, 8, 9]
       api:
         - POST /api/v1/members/me/tasks/{task_code}/complete
+        - GET /api/v1/members/me/points/ledger
     preconditions:
       - 用户已登录
       - 目标任务可完成
     steps:
       - 使用同一 request_id 连续提交两次任务完成请求
+      - 查询积分流水
     expected:
-      - 系统最多仅成功记账一次
+      - 系统最多只成功记账一次
       - 仅存在一条对应积分流水
 
   - id: TC-EDGE-003
@@ -255,26 +262,7 @@ test_cases:
       - 不重复加分
 
   - id: TC-EDGE-005
-    title: 奖励发放失败时返回明确错误
-    category: edge_case
-    level: integration
-    priority: P0
-    coverage:
-      acceptance_criteria: [6, 9]
-      api:
-        - POST /api/v1/members/me/tasks/{task_code}/complete
-    preconditions:
-      - 任务或升级会触发奖励发放
-      - 模拟 reward_dispatch 失败
-    steps:
-      - 提交任务完成请求
-    expected:
-      - 返回明确错误结构和 request_id
-      - 不允许 silent fail
-      - 审计或日志中可追踪失败原因
-
-  - id: TC-EDGE-006
-    title: 配置未发布前不应影响用户侧结果
+    title: 未发布配置不会影响用户侧结果
     category: edge_case
     level: integration
     priority: P1
@@ -285,36 +273,57 @@ test_cases:
         - GET /api/v1/members/me/tasks
     preconditions:
       - 当前登录身份为运营人员
-      - 存在已发布配置版本
+      - 已存在一个已发布配置版本
     steps:
-      - 修改任务积分值但不发布
-      - 以用户身份查询任务列表
+      - 更新任务配置但不发布
+      - 切换到普通用户查询任务列表
     expected:
-      - 用户侧读取的仍是旧配置
-      - 未发布配置不会提前生效
+      - 用户侧仍读取旧的已发布配置
+      - 未发布变更不会立即生效
 
-  - id: TC-EDGE-007
-    title: 无流水和无奖励数据时接口返回空集合
+  - id: TC-EDGE-006
+    title: 无效等级和权益映射配置发布失败
     category: edge_case
     level: integration
-    priority: P2
+    priority: P0
     coverage:
-      acceptance_criteria: [2, 5]
+      acceptance_criteria: [6, 7]
       api:
-        - GET /api/v1/members/me/points/ledger
-        - GET /api/v1/members/me/rewards
+        - PUT /api/v1/admin/member-config/levels
+        - PUT /api/v1/admin/member-config/benefits
+        - POST /api/v1/admin/member-config:publish
     preconditions:
-      - 新用户已初始化会员档案
-      - 尚无积分流水与奖励记录
+      - 当前登录身份为运营人员
     steps:
-      - 查询积分流水
-      - 查询奖励记录
+      - 提交门槛顺序错误或重复 level_code 的等级配置
+      - 提交引用无效 level_code 或 benefit_code 的权益映射
+      - 尝试发布配置
     expected:
-      - 返回 200
-      - 两个接口均返回空数组或空分页结果
+      - 发布失败
+      - 返回统一错误结构和明确错误码
+
+  - id: TC-EDGE-007
+    title: 高频重复请求触发基础风控拦截
+    category: edge_case
+    level: e2e
+    priority: P0
+    coverage:
+      acceptance_criteria: [8, 9]
+      api:
+        - POST /api/v1/members/me/check-ins
+        - POST /api/v1/members/me/tasks/{task_code}/complete
+    preconditions:
+      - 用户已登录
+      - 风控阈值已配置
+    steps:
+      - 在短时间窗口内重复提交签到或任务完成请求
+    expected:
+      - 系统返回风控拒绝结果
+      - 返回 request_id
+      - 不产生额外积分流水
 
   - id: TC-PERM-001
-    title: 未登录用户不能访问用户侧会员接口
+    title: 未登录用户不能访问会员档案和面板
     category: permission_case
     level: integration
     priority: P0
@@ -323,13 +332,12 @@ test_cases:
       api:
         - GET /api/v1/members/me
         - GET /api/v1/members/me/dashboard
-        - GET /api/v1/members/me/tasks
     preconditions: []
     steps:
-      - 在无登录态下访问用户侧接口
+      - 在未登录状态访问会员档案和面板接口
     expected:
-      - 返回鉴权失败
-      - 不返回任何会员数据
+      - 返回 401 或等价鉴权失败状态
+      - 错误结构符合统一规范
 
   - id: TC-PERM-002
     title: 普通用户不得访问运营配置接口
@@ -345,47 +353,49 @@ test_cases:
     preconditions:
       - 当前登录身份为普通用户
     steps:
-      - 访问运营配置查询和发布接口
+      - 请求运营配置读取、更新和发布接口
     expected:
-      - 返回 403 或等价权限错误
-      - 配置不发生变更
+      - 所有请求均被拒绝
+      - 不产生配置变更
 
   - id: TC-PERM-003
-    title: 运营人员可查询指定用户会员详情
+    title: 普通用户不得越权读取指定用户会员详情
+    category: permission_case
+    level: integration
+    priority: P0
+    coverage:
+      acceptance_criteria: [1, 2]
+      api:
+        - GET /api/v1/admin/members/{user_id}
+    preconditions:
+      - 当前登录身份为普通用户
+      - 系统中存在其他用户
+    steps:
+      - 使用普通用户身份查询其他用户会员详情
+    expected:
+      - 返回 403 或等价拒绝结果
+      - 不暴露目标用户的会员、任务或流水信息
+
+  - id: TC-PERM-004
+    title: 运营人员可查询指定用户会员详情用于排查
     category: permission_case
     level: integration
     priority: P1
     coverage:
-      acceptance_criteria: [7]
+      acceptance_criteria: [7, 9]
       api:
         - GET /api/v1/admin/members/{user_id}
     preconditions:
       - 当前登录身份为运营人员
-      - 目标用户存在会员数据
+      - 目标用户存在
     steps:
-      - 查询指定 user_id 的会员详情
+      - 查询指定用户会员详情
     expected:
-      - 返回该用户会员详情与最近流水
-      - 请求被记录到操作审计
-
-  - id: TC-PERM-004
-    title: 运营人员不得执行平台管理员专属人工修正操作
-    category: permission_case
-    level: unit
-    priority: P1
-    coverage:
-      acceptance_criteria: [9]
-      api: []
-    preconditions:
-      - 系统存在管理员专属操作能力定义
-    steps:
-      - 以运营角色调用人工修正或补发权限校验逻辑
-    expected:
-      - 权限校验拒绝通过
-      - 需要管理员角色、原因和请求号
+      - 返回目标用户会员详情、任务状态和最近流水
+      - 响应不包含越界批量数据
 
   - id: TC-REG-001
-    title: 任意积分余额变化都必须有对应流水
+    title: 签到记账必须同步生成积分流水
     category: regression_risk
     level: integration
     priority: P0
@@ -393,18 +403,20 @@ test_cases:
       acceptance_criteria: [2, 3, 9]
       api:
         - POST /api/v1/members/me/check-ins
-        - POST /api/v1/members/me/tasks/{task_code}/complete
+        - GET /api/v1/members/me
+        - GET /api/v1/members/me/points/ledger
     preconditions:
-      - 用户可执行签到或任务完成
+      - 用户已登录
+      - 当日尚未签到
     steps:
-      - 触发一次签到或任务完成
-      - 读取账户余额和最新流水
+      - 提交签到请求
+      - 查询会员档案和积分流水
     expected:
-      - 余额变化与流水 points_delta 一致
-      - 不存在只改余额不写流水的情况
+      - points_balance 的变化与最新流水一致
+      - 不存在余额变化但无流水的情况
 
   - id: TC-REG-002
-    title: 升级与奖励发放保持同一业务上下文可追溯
+    title: 升级与奖励发放共享同一业务上下文
     category: regression_risk
     level: integration
     priority: P0
@@ -414,50 +426,47 @@ test_cases:
         - POST /api/v1/members/me/tasks/{task_code}/complete
         - GET /api/v1/members/me/rewards
     preconditions:
-      - 用户执行后会发生升级和发奖
+      - 用户完成一次任务即可触发升级
     steps:
-      - 提交触发升级的任务完成请求
+      - 提交任务完成请求
       - 查询奖励记录
     expected:
-      - 升级结果与奖励记录可通过 request_id 或 source_ref_id 关联
-      - 不出现已升级但无可追溯奖励上下文的情况
+      - 升级结果和奖励结果属于同一次业务动作
+      - 可通过 request_id 或等价上下文字段追溯
 
   - id: TC-REG-003
-    title: 发布后的新配置被用户侧实时读取
+    title: 发布后的配置版本被用户侧服务正确读取
     category: regression_risk
     level: e2e
-    priority: P1
+    priority: P0
     coverage:
       acceptance_criteria: [5, 6, 7]
       api:
-        - PUT /api/v1/admin/member-config/levels
+        - PUT /api/v1/admin/member-config/tasks
         - POST /api/v1/admin/member-config:publish
-        - GET /api/v1/members/me
         - GET /api/v1/members/me/tasks
     preconditions:
       - 当前登录身份为运营人员
-      - 系统已有旧配置版本
     steps:
-      - 更新等级门槛或任务积分值并发布
-      - 以用户身份查询会员档案或任务列表
+      - 更新任务积分值并发布
+      - 切换到普通用户读取任务列表
     expected:
-      - 用户侧读取到新配置对应的结果
-      - 不继续使用旧配置缓存
+      - 用户侧看到最新 reward_points
+      - 不会继续读取旧配置版本
 
   - id: TC-REG-004
-    title: 高频请求被风控拒绝且返回统一错误结构
+    title: 错误响应始终符合统一结构
     category: regression_risk
-    level: integration
+    level: unit
     priority: P1
     coverage:
       acceptance_criteria: [8, 9]
       api:
         - POST /api/v1/members/me/check-ins
         - POST /api/v1/members/me/tasks/{task_code}/complete
-    preconditions:
-      - 已构造短时间高频触发条件
+        - POST /api/v1/admin/member-config:publish
+    preconditions: []
     steps:
-      - 连续发起高频请求直到命中风控
+      - 分别构造鉴权失败、风控拦截、配置发布校验失败请求
     expected:
-      - 返回错误结构包含 error.code、message、details、request_id
-      - 风控拒绝可被日志和审计事件追踪
+      - 所有失败响应均包含 error.code、error.message、error.details、request_id
