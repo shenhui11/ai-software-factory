@@ -187,8 +187,18 @@ jobs:
           git config user.email "295225478@qq.com"
 
           git checkout -b feat/${FEATURE_ID} || git checkout feat/${FEATURE_ID}
+          
+          echo "===== 提交前状态 ====="
+          git status --short
+          
+          git add -A
 
-          git add apps tests docs pyproject.toml requirements*.txt Makefile || true
+          echo "===== add 后状态 ====="
+          git status --short
+
+          git diff --cached --name-only
 
           git diff --cached --quiet || git commit -m "feat: implement ${FEATURE_ID}"
           git push --set-upstream origin feat/${FEATURE_ID}
+
+
