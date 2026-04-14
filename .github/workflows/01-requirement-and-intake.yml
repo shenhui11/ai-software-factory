@@ -1,0 +1,106 @@
+name: 01-需求澄清与 Intake
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0001"
+        required: true
+        type: string
+      raw_requirement:
+        description: "一句话需求"
+        required: true
+        type: string
+
+jobs:
+  requirement-and-intake:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
+      RAW_REQUIREMENT: ${{ github.event.inputs.raw_requirement }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: 配置 Codex
+        env:
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+        run: |
+          bash scripts/setup_codex.sh
+
+      - name: 准备目录
+        run: |
+          mkdir -p specs/requirement-card specs/decision specs/intake specs/review
+          test -f specs/prompts/requirement-clarifier.md
+          test -f specs/prompts/decision.md
+          test -f scripts/generate_spec.py
+
+      - name: 生成 Requirement Clarifier Prompt
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/requirement-clarifier.md > /tmp/requirement.prompt
+          printf "\n\n原始需求：%s\n" "$RAW_REQUIREMENT" >> /tmp/requirement.prompt
+
+      - name: 执行 Requirement Clarifier
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          codex exec --skip-git-repo-check "$(cat /tmp/requirement.prompt)"
+
+      - name: 校验 Requirement Card 输出
+        run: |
+          test -f "specs/requirement-card/${FEATURE_ID}.md"
+          test -s "specs/requirement-card/${FEATURE_ID}.md"
+          sed -n '1,120p' "specs/requirement-card/${FEATURE_ID}.md"
+
+      - name: 生成 Decision Prompt
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/decision.md > /tmp/decision.prompt
+
+      - name: 执行 Decision
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          codex exec --skip-git-repo-check "$(cat /tmp/decision.prompt)"
+
+      - name: 校验 Decision 输出
+        run: |
+          test -f "specs/decision/${FEATURE_ID}.md"
+          test -s "specs/decision/${FEATURE_ID}.md"
+          sed -n '1,120p' "specs/decision/${FEATURE_ID}.md"
+
+      - name: 生成 Intake JSON
+        run: |
+          python scripts/generate_spec.py \
+            --feature_id "${FEATURE_ID}" \
+            --requirement "${RAW_REQUIREMENT}"
+
+      - name: 校验 Intake 输出
+        run: |
+          test -f "specs/intake/${FEATURE_ID}.json"
+          test -s "specs/intake/${FEATURE_ID}.json"
+          sed -n '1,120p' "specs/intake/${FEATURE_ID}.json"
+
+      - name: 提交 01 产物
+        run: |
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "docs: generate requirement and intake ${FEATURE_ID}"
+          git push

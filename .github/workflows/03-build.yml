@@ -22,6 +22,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 校验 design 已审批
+        run: |
+          test -f "specs/review/${FEATURE_ID}.design.approved"
+
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
@@ -35,172 +39,44 @@ jobs:
       - name: 安装 Codex CLI
         run: npm install -g @openai/codex
 
-      - name: 生成 Codex 配置
-        run: |
-          mkdir -p ~/.codex
-          cat > ~/.codex/config.toml <<EOF
-          model = "gpt-5.4"
-          model_reasoning_effort = "low"
-          model_provider = "newapi"
-          approval_policy = "never"
-          sandbox_mode = "danger-full-access"
-
-          [model_providers.newapi]
-          name = "newapi"
-          base_url = "${CODEX_BASE_URL}"
-          wire_api = "responses"
-          env_key = "CODEX_API_KEY"
-          EOF
+      - name: 配置 Codex
         env:
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
-
-      - name: 预检查输入文件
         run: |
-          test -f "AGENTS.md"
-          test -f "specs/prompts/builder.strict.md"
-          test -f "docs/definition-of-done.md"
-          test -f "docs/engineering-standards.md"
-          test -f "docs/coding-rules.md"
-
-          test -s "specs/intake/${FEATURE_ID}.json"
-          test -s "specs/prd/${FEATURE_ID}.md"
-          test -s "specs/architecture/${FEATURE_ID}.md"
-          test -s "specs/test-plan/${FEATURE_ID}.md"
-          test -s "specs/test-cases/${FEATURE_ID}.yaml"
-
-      - name: 打印运行上下文
-        run: |
-          echo "FEATURE_ID=${FEATURE_ID}"
-          echo "BUILD_BRANCH=${BUILD_BRANCH}"
-          pwd
-          git status --short || true
+          bash scripts/setup_codex.sh
 
       - name: 创建基础目录
         run: |
           mkdir -p apps tests docs packages
-
-      - name: 测试 runner 写权限
-        run: |
           echo "probe" > apps/__write_probe__.txt
           echo "probe" > tests/__write_probe__.txt
-          test -s apps/__write_probe__.txt
-          test -s tests/__write_probe__.txt
 
-      - name: 生成 Builder Prompt
-        run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/builder.prompt
-
-      - name: 预览 Builder Prompt
-        run: |
-          echo "===== Builder Prompt Preview ====="
-          sed -n '1,240p' /tmp/builder.prompt
-
-      - name: 执行代码生成（Builder）
+      - name: 执行 Builder
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          PROMPT_CONTENT="$(cat /tmp/builder.prompt)"
-          codex exec --skip-git-repo-check "$PROMPT_CONTENT"
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/builder.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/builder.prompt)"
 
       - name: 清理缓存目录
         run: |
           find apps tests -type d -name "__pycache__" -prune -exec rm -rf {} + || true
 
-      - name: 校验 Builder 真实输出
+      - name: 校验生成结果
         run: |
-          echo "===== apps 目录内容 ====="
-          ls -lah apps || true
-          find apps -type f | sort || true
-
-          echo "===== tests 目录内容 ====="
-          ls -lah tests || true
-          find tests -type f | sort || true
-
-          echo "===== docs 目录内容 ====="
-          ls -lah docs || true
-          find docs -type f | sort || true
-
-          echo "===== git 状态 ====="
-          git status --short || true
-
-          echo "===== 已跟踪文件 diff ====="
-          git diff --name-only || true
-
-          echo "===== 未跟踪文件 ====="
-          git ls-files --others --exclude-standard || true
-
-          echo "===== apps Python 源文件检查 ====="
           test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
-
-          echo "===== tests Python 源文件检查 ====="
           test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
 
-      - name: 校验 FEAT 关键输出文件
+      - name: 校验非法根目录
         run: |
-          case "${FEATURE_ID}" in
-            FEAT-0002)
-              test -f apps/backend/main.py
-              test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'member' | head -n 1)"
-              test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'member|membership' | head -n 1)"
-
-              if [ -f docs/feat-0002-run.md ] || [ -f docs/member-system.md ]; then
-                echo "检测到 FEAT-0002 运行文档"
-              else
-                echo "[WARN] 未检测到 FEAT-0002 运行文档，继续执行"
-              fi
-              ;;
-            FEAT-0003)
-              test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'template' | head -n 1)"
-              test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | grep -E 'template' | head -n 1)"
-
-              if [ -f docs/feat-0003-run.md ]; then
-                echo "检测到 FEAT-0003 运行文档"
-              else
-                echo "[WARN] 未检测到 FEAT-0003 运行文档，继续执行"
-              fi
-              ;;
-            *)
-              echo "未配置 ${FEATURE_ID} 的专用关键文件检查，跳过专用校验。"
-              ;;
-          esac
-
-      - name: 校验未生成非法根目录
-        run: |
-          echo "===== 仓库根目录目录列表 ====="
-          find . -maxdepth 1 -type d | sort
-
           FOUND_BAD_DIR=0
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
               echo "[ERROR] 生成了非法根目录: $dir"
-              ls -lah "$dir" || true
               FOUND_BAD_DIR=1
             fi
           done
-
           if [ "$FOUND_BAD_DIR" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: 预览关键生成文件
-        run: |
-          echo "===== apps 预览（只看 .py） ====="
-          FIRST_APP_FILE="$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | sort | head -n 1)"
-          if [ -n "$FIRST_APP_FILE" ]; then
-            echo "FILE=$FIRST_APP_FILE"
-            sed -n '1,120p' "$FIRST_APP_FILE"
-          else
-            echo "[ERROR] apps 下没有找到 .py 文件"
-            exit 1
-          fi
-
-          echo "===== tests 预览（只看 .py） ====="
-          FIRST_TEST_FILE="$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | sort | head -n 1)"
-          if [ -n "$FIRST_TEST_FILE" ]; then
-            echo "FILE=$FIRST_TEST_FILE"
-            sed -n '1,120p' "$FIRST_TEST_FILE"
-          else
-            echo "[ERROR] tests 下没有找到 .py 文件"
             exit 1
           fi
 
@@ -208,47 +84,22 @@ jobs:
         run: |
           rm -f apps/__write_probe__.txt
           rm -f tests/__write_probe__.txt
-          echo "===== 清理探针后状态 ====="
-          git status --short || true
 
-      - name: 安装项目依赖
+      - name: 安装依赖并运行 pytest
         run: |
           python -m pip install --upgrade pip
-
-          if [ -f pyproject.toml ]; then
-            python -m pip install -e . || true
-          fi
-
-          if [ -f requirements.txt ]; then
-            python -m pip install -r requirements.txt || true
-          fi
-
-          if [ -f requirements-dev.txt ]; then
-            python -m pip install -r requirements-dev.txt || true
-          fi
-
           python -m pip install pytest fastapi httpx uvicorn
-
-      - name: 运行 pytest
-        run: |
+          if [ -f pyproject.toml ]; then python -m pip install -e . || true; fi
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
+          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
           python -m pytest tests -q
 
       - name: 提交构建产物
         run: |
           git config user.name "Hui Shen"
           git config user.email "295225478@qq.com"
-
           git checkout -b "${BUILD_BRANCH}"
-
-          echo "===== 提交前状态 ====="
-          git status --short
-
           git add -A
-
-          echo "===== add 后状态 ====="
-          git status --short
-          git diff --cached --name-only
-
           git diff --cached --quiet || git commit -m "feat: implement ${FEATURE_ID}"
           git push --set-upstream origin "${BUILD_BRANCH}"
 

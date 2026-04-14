@@ -8,9 +8,9 @@ on:
       - develop
   workflow_dispatch:
     inputs:
-      ref_name:
-        description: "可选：要验证的分支名或 commit SHA，不填则使用当前默认 checkout"
-        required: false
+      target_ref:
+        description: "真实分支名或 commit SHA，例如 feat/FEAT-0002-build-24340754528"
+        required: true
         type: string
 
 jobs:
@@ -25,138 +25,80 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 检出代码（手动）
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref_name != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref_name }}
-
-      - name: 检出代码（手动默认）
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref_name == '' }}
-        uses: actions/checkout@v4
+          ref: ${{ github.event.inputs.target_ref }}
 
       - name: 安装 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: 打印运行上下文
-        run: |
-          echo "EVENT_NAME=${GITHUB_EVENT_NAME}"
-          echo "REF=${GITHUB_REF}"
-          echo "HEAD_REF=${GITHUB_HEAD_REF}"
-          echo "BASE_REF=${GITHUB_BASE_REF}"
-          echo "SHA=${GITHUB_SHA}"
-          pwd
-          git status --short || true
-
-      - name: 打印仓库结构
-        run: |
-          echo "===== 根目录 ====="
-          find . -maxdepth 2 | sort
-
-      - name: 校验核心文件存在
+      - name: 校验核心文件与结构
         run: |
           test -f "AGENTS.md"
           test -f "docs/definition-of-done.md"
           test -f "docs/engineering-standards.md"
           test -f "docs/coding-rules.md"
+          test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
+          test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
 
-      - name: 校验未生成非法根目录
+      - name: 校验非法根目录
         run: |
-          echo "===== 仓库根目录目录列表 ====="
-          find . -maxdepth 1 -type d | sort
-
-          FOUND_BAD_DIR=0
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
               echo "[ERROR] 非法根目录存在: $dir"
-              ls -lah "$dir" || true
-              FOUND_BAD_DIR=1
+              exit 1
             fi
           done
 
-          if [ "$FOUND_BAD_DIR" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: 校验 apps 与 tests 非空
-        run: |
-          echo "===== apps 目录内容 ====="
-          ls -lah apps || true
-          find apps -maxdepth 8 -type f | sort || true
-
-          echo "===== tests 目录内容 ====="
-          ls -lah tests || true
-          find tests -maxdepth 8 -type f | sort || true
-
-          test -d apps
-          test -d tests
-          test -n "$(find apps -type f | head -n 1)"
-          test -n "$(find tests -type f | head -n 1)"
-
       - name: 校验未残留探针文件
         run: |
-          if [ -f apps/__write_probe__.txt ]; then
-            echo "[ERROR] apps/__write_probe__.txt 不应提交到仓库"
-            exit 1
-          fi
-
-          if [ -f tests/__write_probe__.txt ]; then
-            echo "[ERROR] tests/__write_probe__.txt 不应提交到仓库"
-            exit 1
-          fi
-
-      - name: 打印 git 状态与差异
-        run: |
-          echo "===== git status ====="
-          git status --short || true
-
-          echo "===== tracked diff ====="
-          git diff --name-only || true
-
-          echo "===== untracked ====="
-          git ls-files --others --exclude-standard || true
+          test ! -f apps/__write_probe__.txt
+          test ! -f tests/__write_probe__.txt
 
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
-
-          if [ -f pyproject.toml ]; then
-            python -m pip install -e . || true
-          fi
-
-          if [ -f requirements.txt ]; then
-            python -m pip install -r requirements.txt || true
-          fi
-
-          if [ -f requirements-dev.txt ]; then
-            python -m pip install -r requirements-dev.txt || true
-          fi
-
-          python -m pip install pytest fastapi httpx uvicorn
-
-      - name: 预览关键文件
-        run: |
-          echo "===== apps 预览 ====="
-          FIRST_APP_FILE="$(find apps -type f | head -n 1)"
-          if [ -n "$FIRST_APP_FILE" ]; then
-            echo "FILE=$FIRST_APP_FILE"
-            sed -n '1,120p' "$FIRST_APP_FILE"
-          fi
-
-          echo "===== tests 预览 ====="
-          FIRST_TEST_FILE="$(find tests -type f | head -n 1)"
-          if [ -n "$FIRST_TEST_FILE" ]; then
-            echo "FILE=$FIRST_TEST_FILE"
-            sed -n '1,120p' "$FIRST_TEST_FILE"
-          fi
+          python -m pip install pytest fastapi uvicorn httpx
+          if [ -f pyproject.toml ]; then python -m pip install -e . || true; fi
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
+          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
 
       - name: 运行 pytest
         run: |
           python -m pytest tests -q
 
-      - name: 输出验证完成信息
+      - name: 启动 FastAPI
         run: |
-          echo "04-verify completed successfully."
+          nohup python -m uvicorn apps.backend.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          echo $! > uvicorn.pid
 
+      - name: 等待服务启动
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/docs > /dev/null; then
+              echo "FastAPI is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          cat uvicorn.log || true
+          exit 1
 
+      - name: 冒烟测试
+        run: |
+          curl -f http://127.0.0.1:8000/docs
+
+      - name: 打印服务日志
+        if: always()
+        run: |
+          cat uvicorn.log || true
+
+      - name: 关闭服务
+        if: always()
+        run: |
+          if [ -f uvicorn.pid ]; then
+            kill "$(cat uvicorn.pid)" || true
+          fi

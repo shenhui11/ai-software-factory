@@ -9,7 +9,7 @@ on:
         type: string
 
 jobs:
-  design-and-tests:
+  design:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -21,6 +21,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 校验 requirement 已审批
+        run: |
+          test -f "specs/review/${FEATURE_ID}.requirement.approved"
+
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
@@ -29,86 +33,48 @@ jobs:
       - name: 安装 Codex CLI
         run: npm install -g @openai/codex
 
-      - name: 生成 Codex 配置
-        run: |
-          mkdir -p ~/.codex
-          cat > ~/.codex/config.toml <<EOF
-          model = "gpt-5.4"
-          model_reasoning_effort = "low"
-          model_provider = "newapi"
-          approval_policy = "never"
-          sandbox_mode = "danger-full-access"
-
-          [model_providers.newapi]
-          name = "newapi"
-          base_url = "${CODEX_BASE_URL}"
-          wire_api = "responses"
-          env_key = "CODEX_API_KEY"
-          EOF
+      - name: 配置 Codex
         env:
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
-
-      - name: 预检查输入文件
         run: |
-          test -f "specs/intake/${FEATURE_ID}.json"
-          test -f "specs/prompts/product-manager.md"
-          test -f "specs/prompts/architect.md"
-          test -f "specs/prompts/test-designer.md"
-          test -f "AGENTS.md"
+          bash scripts/setup_codex.sh
 
-      - name: 执行产品设计
+      - name: 准备目录
+        run: |
+          mkdir -p specs/prd specs/architecture specs/test-plan specs/test-cases
+
+      - name: 执行 Product Manager
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/product-manager.md > /tmp/product-manager.prompt
-          codex exec --skip-git-repo-check "$(cat /tmp/product-manager.prompt)"
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/product-manager.md > /tmp/product.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/product.prompt)"
 
-      - name: 执行架构设计
+      - name: 执行 Architect
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
           sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/architect.md > /tmp/architect.prompt
           codex exec --skip-git-repo-check "$(cat /tmp/architect.prompt)"
 
-      - name: 执行测试设计
+      - name: 执行 Test Designer
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/test-designer.md > /tmp/test-designer.prompt
-          codex exec --skip-git-repo-check "$(cat /tmp/test-designer.prompt)"
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/test-designer.md > /tmp/test.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/test.prompt)"
 
-      - name: 校验设计产物非空
+      - name: 校验 02 输出
         run: |
           test -s "specs/prd/${FEATURE_ID}.md"
           test -s "specs/architecture/${FEATURE_ID}.md"
           test -s "specs/test-plan/${FEATURE_ID}.md"
           test -s "specs/test-cases/${FEATURE_ID}.yaml"
 
-      - name: 校验未生成非法根目录
+      - name: 提交 02 产物
         run: |
-          for dir in prd architecture test-plan test-cases; do
-            if [ -d "$dir" ]; then
-              echo "[ERROR] 非法根目录: $dir"
-              exit 1
-            fi
-          done
-
-      - name: 输出产物大小
-        run: |
-          wc -c \
-            "specs/prd/${FEATURE_ID}.md" \
-            "specs/architecture/${FEATURE_ID}.md" \
-            "specs/test-plan/${FEATURE_ID}.md" \
-            "specs/test-cases/${FEATURE_ID}.yaml"
-
-      - name: 提交设计产物
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add \
-            "specs/prd/${FEATURE_ID}.md" \
-            "specs/architecture/${FEATURE_ID}.md" \
-            "specs/test-plan/${FEATURE_ID}.md" \
-            "specs/test-cases/${FEATURE_ID}.yaml"
-          git diff --cached --quiet || git commit -m "docs: 生成设计与测试产物 ${FEATURE_ID}"
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "docs: generate design artifacts ${FEATURE_ID}"
           git push
