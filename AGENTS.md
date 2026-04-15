@@ -10,13 +10,14 @@
 
 你只允许写入以下文件：
 
+- specs/requirement-card/{feature_id}.md
 - specs/prd/{feature_id}.md
 - specs/architecture/{feature_id}.md
 - specs/test-plan/{feature_id}.md
 - specs/scoring/{feature_id}.json
 - specs/decision/{feature_id}.md
 - specs/brainstorm/{feature_id}.md
-- specs/intake/{feature_id}.md
+- specs/intake/{feature_id}.json
 - specs/tests/{feature_id}.md
 - specs/test-cases/{feature_id}.yaml
 
