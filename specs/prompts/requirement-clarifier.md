@@ -7,7 +7,7 @@
 - docs/coding-rules.md
 
 目标：
-将原始需求整理为一份“需求卡片”，用于后续人工澄清和确认。
+将原始需求整理为一份“需求卡片”，并生成结构化 intake 输入，用于后续人工澄清和确认。
 
 你必须创建或覆盖以下文件：
 - specs/requirement-card/{feature_id}.md
@@ -32,4 +32,4 @@
 3. 如果文件未成功写入，不允许结束任务
 4. 完成前必须执行：
    - ls -l specs/requirement-card/{feature_id}.md
-   - sed -n '1,120p' specs/requirement-card/{feature_id}.md
+   - sed -n '1,160p' specs/requirement-card/{feature_id}.md

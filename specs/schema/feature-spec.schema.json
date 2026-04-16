@@ -1,64 +1,75 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "FeatureSpec",
+  "title": "Feature Intake Spec",
   "type": "object",
   "required": [
     "feature_id",
     "raw_requirement",
-    "selected_solution",
+    "requirement_card_file",
+    "manual_guidance",
+    "product_context",
     "mvp_scope",
     "out_of_scope",
-    "actors",
+    "assumptions",
+    "open_questions",
     "constraints",
-    "acceptance_criteria",
-    "decision_artifacts"
+    "actors",
+    "acceptance_criteria"
   ],
   "properties": {
     "feature_id": {
-      "type": "string",
-      "pattern": "^FEAT-[0-9]{4}$"
+      "type": "string"
     },
     "raw_requirement": {
-      "type": "string",
-      "minLength": 5
+      "type": "string"
     },
-    "selected_solution": {
+    "requirement_card_file": {
+      "type": "string"
+    },
+    "manual_guidance": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "product_context": {
       "type": "object",
-      "required": ["id", "name", "reason"],
+      "required": [
+        "target_users",
+        "business_goal",
+        "problem_statement",
+        "success_metrics"
+      ],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
+        "target_users": {
+          "type": "array",
+          "items": { "type": "string" }
         },
-        "name": {
-          "type": "string",
-          "minLength": 1
+        "business_goal": {
+          "type": "string"
         },
-        "reason": {
-          "type": "string",
-          "minLength": 1
+        "problem_statement": {
+          "type": "string"
+        },
+        "success_metrics": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
     "mvp_scope": {
       "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
+      "items": { "type": "string" }
     },
     "out_of_scope": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": { "type": "string" }
     },
-    "actors": {
+    "assumptions": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": { "type": "string" }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" }
     },
     "constraints": {
       "type": "object",
@@ -66,10 +77,7 @@
       "properties": {
         "tech_stack": {
           "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         },
         "non_functional": {
           "type": "object",
@@ -82,59 +90,34 @@
           "properties": {
             "security": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "performance": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "reliability": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "observability": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             }
           }
         }
       }
     },
+    "actors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "acceptance_criteria": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "items": { "type": "string" }
     },
-    "decision_artifacts": {
-      "type": "object",
-      "required": [
-        "brainstorm_file",
-        "scoring_file",
-        "decision_file"
-      ],
-      "properties": {
-        "brainstorm_file": {
-          "type": "string",
-          "pattern": "^specs/brainstorm/FEAT-[0-9]{4}\\.md$"
-        },
-        "scoring_file": {
-          "type": "string",
-          "pattern": "^specs/scoring/FEAT-[0-9]{4}\\.json$"
-        },
-        "decision_file": {
-          "type": "string",
-          "pattern": "^specs/decision/FEAT-[0-9]{4}\\.md$"
-        }
-      }
+    "notes": {
+      "type": "string"
     }
   }
 }

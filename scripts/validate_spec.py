@@ -1,15 +1,22 @@
+import argparse
 import json
-import sys
+from pathlib import Path
+
 from jsonschema import validate
 
-spec_file = sys.argv[1]
-schema_file = sys.argv[2]
 
-with open(spec_file, "r", encoding="utf-8") as f:
-    spec = json.load(f)
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("spec_file")
+    parser.add_argument("schema_file")
+    args = parser.parse_args()
 
-with open(schema_file, "r", encoding="utf-8") as f:
-    schema = json.load(f)
+    spec = json.loads(Path(args.spec_file).read_text(encoding="utf-8"))
+    schema = json.loads(Path(args.schema_file).read_text(encoding="utf-8"))
 
-validate(instance=spec, schema=schema)
-print("Spec validation passed.")
+    validate(instance=spec, schema=schema)
+    print(f"Validated {args.spec_file} against {args.schema_file}")
+
+
+if __name__ == "__main__":
+    main()
