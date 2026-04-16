@@ -1,0 +1,87 @@
+{
+  "feature_id": "FEAT-0001",
+  "solutions": [
+    {
+      "solution_id": "solution_1",
+      "name": "审稿驱动型章节工坊",
+      "scores": {
+        "feasibility": 9,
+        "user_value": 7,
+        "implementation_complexity": 8,
+        "time_to_market": 9,
+        "scalability": 7
+      },
+      "total_score": 40,
+      "summary": "最贴近当前需求澄清中的逐章审核、质量回流和人工拍板流程，MVP 范围收敛，适合快速落地首期产品。",
+      "risks": [
+        "逐章人工确认会限制长篇和批量创作效率",
+        "跨章节连贯性能力相对依赖后续记忆系统增强，首期壁垒偏流程化"
+      ],
+      "recommendation": "optional"
+    },
+    {
+      "solution_id": "solution_2",
+      "name": "大纲中枢型小说操作系统",
+      "scores": {
+        "feasibility": 9,
+        "user_value": 10,
+        "implementation_complexity": 5,
+        "time_to_market": 7,
+        "scalability": 9
+      },
+      "total_score": 40,
+      "summary": "最能正面解决需求中的长篇连贯性、结构化记忆和大纲可控性问题，长期产品价值与扩展性最好。",
+      "risks": [
+        "蓝图编辑器和一致性建模会显著抬高首期研发成本",
+        "前置配置较重，可能增加新用户上手门槛并影响早期转化"
+      ],
+      "recommendation": "recommended"
+    },
+    {
+      "solution_id": "solution_3",
+      "name": "自动连载型 AI 制片台",
+      "scores": {
+        "feasibility": 6,
+        "user_value": 7,
+        "implementation_complexity": 4,
+        "time_to_market": 6,
+        "scalability": 8
+      },
+      "total_score": 31,
+      "summary": "自动化和商业化潜力强，适合高产出团队场景，但与当前需求中强调的人工审核决策和可控创作存在一定偏移。",
+      "risks": [
+        "批处理多 Agent 编排和质量闸门稳定性要求高，容易在首期形成技术风险",
+        "对个人作者而言生产线心智较强，可能削弱产品的精细创作体验"
+      ],
+      "recommendation": "not_recommended"
+    },
+    {
+      "solution_id": "solution_4",
+      "name": "模板市场型创作平台",
+      "scores": {
+        "feasibility": 8,
+        "user_value": 7,
+        "implementation_complexity": 7,
+        "time_to_market": 8,
+        "scalability": 8
+      },
+      "total_score": 38,
+      "summary": "模板和会员运营路径清晰，适合新手作者和平台运营，但对核心的情节连贯性与章节级质量闭环支撑相对间接。",
+      "risks": [
+        "模板资产可能掩盖真正的创作质量问题，导致核心竞争力偏运营而非生成能力",
+        "若模板标准化不足，产出体验容易波动并影响用户信任"
+      ],
+      "recommendation": "optional"
+    }
+  ],
+  "ranking": [
+    "solution_2",
+    "solution_1",
+    "solution_4",
+    "solution_3"
+  ],
+  "final_recommendation": {
+    "solution_id": "solution_2",
+    "reason": "虽然首期实现复杂度高于章节工坊型方案，但它最契合需求中对情节连贯性、结构化长上下文记忆、大纲可控性和后续扩展空间的核心诉求。若目标是做成真正可持续创作的小说协同平台，而不是更快上线的章节生成工具，方案 2 的长期用户价值和平台壁垒更强，因此建议作为最终推荐。"
+  }
+}
