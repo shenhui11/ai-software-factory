@@ -1,0 +1,99 @@
+name: 02a-多方案设计与评分
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0100"
+        required: true
+        type: string
+      target_ref:
+        description: "规划分支名，例如 plan/FEAT-0100"
+        required: true
+        type: string
+
+jobs:
+  design-options:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
+
+    steps:
+      - name: 检出规划分支
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_ref }}
+
+      - name: 校验 requirement 已审批
+        run: |
+          test -f "specs/review/${FEATURE_ID}.requirement.approved"
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: 配置 Codex
+        env:
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+        run: |
+          bash scripts/setup_codex.sh
+
+      - name: 准备目录
+        run: |
+          mkdir -p specs/design-options specs/scoring specs/decision
+          test -f specs/prompts/design-options.md
+          test -f specs/prompts/design-scoring.md
+
+      - name: 生成 Design Options Prompt
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/design-options.md > /tmp/design-options.prompt
+
+      - name: 执行多方案设计
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          codex exec --skip-git-repo-check "$(cat /tmp/design-options.prompt)"
+
+      - name: 校验 design-options 输出
+        run: |
+          test -f "specs/design-options/${FEATURE_ID}.md"
+          test -s "specs/design-options/${FEATURE_ID}.md"
+          sed -n '1,160p' "specs/design-options/${FEATURE_ID}.md"
+
+      - name: 生成 Design Scoring Prompt
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/design-scoring.md > /tmp/design-scoring.prompt
+
+      - name: 执行方案评分
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          codex exec --skip-git-repo-check "$(cat /tmp/design-scoring.prompt)"
+
+      - name: 校验 scoring 输出
+        run: |
+          test -f "specs/scoring/${FEATURE_ID}.json"
+          test -s "specs/scoring/${FEATURE_ID}.json"
+          sed -n '1,200p' "specs/scoring/${FEATURE_ID}.json"
+
+      - name: 生成 decision 模板（若不存在）
+        run: |
+          if [ ! -f "specs/decision/${FEATURE_ID}.md" ]; then
+            cp specs/templates/design-decision-template.md "specs/decision/${FEATURE_ID}.md"
+            sed -i "s/{feature_id}/${FEATURE_ID}/g" "specs/decision/${FEATURE_ID}.md"
+          fi
+
+      - name: 提交 02a 产物到 planning 分支
+        run: |
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "docs: generate design options and scoring ${FEATURE_ID}"
+          git push

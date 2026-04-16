@@ -1,0 +1,112 @@
+name: 02b-生成最终设计
+
+on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0100"
+        required: true
+        type: string
+      target_ref:
+        description: "规划分支名，例如 plan/FEAT-0100"
+        required: true
+        type: string
+
+jobs:
+  finalize-design:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
+
+    steps:
+      - name: 检出规划分支
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_ref }}
+
+      - name: 校验 requirement 已审批
+        run: |
+          test -f "specs/review/${FEATURE_ID}.requirement.approved"
+
+      - name: 校验 design decision 已存在
+        run: |
+          test -f "specs/decision/${FEATURE_ID}.md"
+          test -s "specs/decision/${FEATURE_ID}.md"
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: 配置 Codex
+        env:
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+        run: |
+          bash scripts/setup_codex.sh
+
+      - name: 准备目录
+        run: |
+          mkdir -p specs/prd specs/architecture specs/test-plan specs/test-cases
+          test -f specs/prompts/product-manager.final.md
+          test -f specs/prompts/architect.final.md
+          test -f specs/prompts/test-designer.final.md
+
+      - name: 执行 Product Manager Final
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/product-manager.final.md > /tmp/product-final.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/product-final.prompt)"
+
+      - name: 执行 Architect Final
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/architect.final.md > /tmp/architect-final.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/architect-final.prompt)"
+
+      - name: 执行 Test Designer Final
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/test-designer.final.md > /tmp/test-final.prompt
+          codex exec --skip-git-repo-check "$(cat /tmp/test-final.prompt)"
+
+      - name: 校验最终设计输出
+        run: |
+          test -f "specs/prd/${FEATURE_ID}.md"
+          test -s "specs/prd/${FEATURE_ID}.md"
+
+          test -f "specs/architecture/${FEATURE_ID}.md"
+          test -s "specs/architecture/${FEATURE_ID}.md"
+
+          test -f "specs/test-plan/${FEATURE_ID}.md"
+          test -s "specs/test-plan/${FEATURE_ID}.md"
+
+          test -f "specs/test-cases/${FEATURE_ID}.yaml"
+          test -s "specs/test-cases/${FEATURE_ID}.yaml"
+
+      - name: 预览最终设计
+        run: |
+          echo "===== PRD ====="
+          sed -n '1,120p' "specs/prd/${FEATURE_ID}.md"
+          echo "===== Architecture ====="
+          sed -n '1,120p' "specs/architecture/${FEATURE_ID}.md"
+          echo "===== Test Plan ====="
+          sed -n '1,120p' "specs/test-plan/${FEATURE_ID}.md"
+          echo "===== Test Cases ====="
+          sed -n '1,120p' "specs/test-cases/${FEATURE_ID}.yaml"
+
+      - name: 提交 02b 产物到 planning 分支
+        run: |
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "docs: finalize design artifacts ${FEATURE_ID}"
+          git push
