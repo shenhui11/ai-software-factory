@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       feature_id:
-        description: "需求编号，例如 FEAT-0001"
+        description: "需求编号，例如 FEAT-0100"
         required: true
         type: string
       raw_requirement:
         description: "一句话需求"
+        required: true
+        type: string
+      plan_branch:
+        description: "规划分支名，例如 plan/FEAT-0100"
         required: true
         type: string
 
@@ -21,10 +25,13 @@ jobs:
     env:
       FEATURE_ID: ${{ github.event.inputs.feature_id }}
       RAW_REQUIREMENT: ${{ github.event.inputs.raw_requirement }}
+      PLAN_BRANCH: ${{ github.event.inputs.plan_branch }}
 
     steps:
-      - name: 检出代码
+      - name: 检出 planning 分支
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.plan_branch }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -39,6 +46,11 @@ jobs:
       - name: 安装 Codex CLI
         run: npm install -g @openai/codex
 
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema
+
       - name: 配置 Codex
         env:
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
@@ -47,15 +59,21 @@ jobs:
 
       - name: 准备目录
         run: |
-          mkdir -p specs/requirement-card specs/decision specs/intake specs/review
-          test -f specs/prompts/requirement-clarifier.md
-          test -f specs/prompts/decision.md
-          test -f scripts/generate_spec.py
+          mkdir -p specs/requirement-card specs/intake specs/review
+          test -f "AGENTS.md"
+          test -f "specs/prompts/requirement-clarifier.md"
+          test -f "scripts/generate_spec.py"
+          test -f "scripts/validate_spec.py"
+          test -f "specs/schema/feature-spec.schema.json"
 
-      - name: 生成 Requirement Clarifier Prompt
+      - name: 生成 Requirement Prompt
         run: |
           sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/requirement-clarifier.md > /tmp/requirement.prompt
           printf "\n\n原始需求：%s\n" "$RAW_REQUIREMENT" >> /tmp/requirement.prompt
+
+      - name: 预览 Requirement Prompt
+        run: |
+          sed -n '1,200p' /tmp/requirement.prompt
 
       - name: 执行 Requirement Clarifier
         env:
@@ -65,25 +83,16 @@ jobs:
 
       - name: 校验 Requirement Card 输出
         run: |
+          echo "===== requirement-card 目录 ====="
+          ls -lah specs/requirement-card || true
+          echo "===== git status ====="
+          git status --short || true
+          echo "===== 未跟踪文件 ====="
+          git ls-files --others --exclude-standard || true
+
           test -f "specs/requirement-card/${FEATURE_ID}.md"
           test -s "specs/requirement-card/${FEATURE_ID}.md"
-          sed -n '1,120p' "specs/requirement-card/${FEATURE_ID}.md"
-
-      - name: 生成 Decision Prompt
-        run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/decision.md > /tmp/decision.prompt
-
-      - name: 执行 Decision
-        env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
-        run: |
-          codex exec --skip-git-repo-check "$(cat /tmp/decision.prompt)"
-
-      - name: 校验 Decision 输出
-        run: |
-          test -f "specs/decision/${FEATURE_ID}.md"
-          test -s "specs/decision/${FEATURE_ID}.md"
-          sed -n '1,120p' "specs/decision/${FEATURE_ID}.md"
+          sed -n '1,160p' "specs/requirement-card/${FEATURE_ID}.md"
 
       - name: 生成 Intake JSON
         run: |
@@ -95,9 +104,15 @@ jobs:
         run: |
           test -f "specs/intake/${FEATURE_ID}.json"
           test -s "specs/intake/${FEATURE_ID}.json"
-          sed -n '1,120p' "specs/intake/${FEATURE_ID}.json"
+          sed -n '1,200p' "specs/intake/${FEATURE_ID}.json"
 
-      - name: 提交 01 产物
+      - name: 校验 Intake Schema
+        run: |
+          python scripts/validate_spec.py \
+            "specs/intake/${FEATURE_ID}.json" \
+            "specs/schema/feature-spec.schema.json"
+
+      - name: 提交 01 产物到 planning 分支
         run: |
           git config user.name "Hui Shen"
           git config user.email "295225478@qq.com"
