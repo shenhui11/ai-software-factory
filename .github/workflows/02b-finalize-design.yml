@@ -52,7 +52,7 @@ jobs:
 
       - name: 准备目录
         run: |
-          mkdir -p specs/prd specs/architecture specs/test-plan specs/test-cases
+          mkdir -p specs/prd specs/architecture specs/test-plan specs/test-cases specs/review
           test -f specs/prompts/product-manager.final.md
           test -f specs/prompts/architect.final.md
           test -f specs/prompts/test-designer.final.md
@@ -92,6 +92,19 @@ jobs:
           test -f "specs/test-cases/${FEATURE_ID}.yaml"
           test -s "specs/test-cases/${FEATURE_ID}.yaml"
 
+      - name: 生成 design 审批标记
+        run: |
+          cat > "specs/review/${FEATURE_ID}.design.approved" <<EOF
+          approved by Hui Shen
+          feature_id: ${FEATURE_ID}
+          decision_file: specs/decision/${FEATURE_ID}.md
+          prd_file: specs/prd/${FEATURE_ID}.md
+          architecture_file: specs/architecture/${FEATURE_ID}.md
+          test_plan_file: specs/test-plan/${FEATURE_ID}.md
+          test_cases_file: specs/test-cases/${FEATURE_ID}.yaml
+          approved_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
+
       - name: 预览最终设计
         run: |
           echo "===== PRD ====="
@@ -102,6 +115,8 @@ jobs:
           sed -n '1,120p' "specs/test-plan/${FEATURE_ID}.md"
           echo "===== Test Cases ====="
           sed -n '1,120p' "specs/test-cases/${FEATURE_ID}.yaml"
+          echo "===== Design Approved ====="
+          cat "specs/review/${FEATURE_ID}.design.approved"
 
       - name: 提交 02b 产物到 planning 分支
         run: |
