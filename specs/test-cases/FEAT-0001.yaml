@@ -7,461 +7,387 @@ test_cases:
     type: core_function
     preconditions:
       - 用户已登录
-      - 至少存在一个可用系统模板
+      - 至少存在一个系统模板或用户自定义模板
     steps:
       - 打开项目创建页
-      - 选择题材、篇幅、模板并提交
+      - 输入标题并选择题材、篇幅、模板、创作模式
+      - 提交创建请求
     expected:
-      - 项目创建成功
+      - 返回创建成功
       - 项目保存 genre、length_type、template_id、mode
-      - 工作台展示新项目基础信息
+      - 工作台可查看新项目基础信息
     acceptance_criteria:
-      - 用户可以创建小说项目，并在创建时选择题材、篇幅和模板。
+      - AC-01
 
   - id: TC-002
-    title: 创建编辑使用系统模板与自定义模板
-    level: integration
-    type: core_function
-    preconditions:
-      - 用户已登录
-    steps:
-      - 创建自定义模板
-      - 编辑模板内容
-      - 查询模板列表并选择系统模板与自定义模板各一次
-    expected:
-      - 模板创建和编辑成功
-      - 系统模板与自定义模板均可被使用
-      - 模板列表正确区分 owner_type
-    acceptance_criteria:
-      - 用户可以创建、编辑并使用系统模板和自定义模板；运营后台可以审核和发布模板。
-
-  - id: TC-003
-    title: 运营后台审核并发布模板
-    level: e2e
-    type: permission
-    preconditions:
-      - 存在待审核模板
-      - 运营账号已登录后台
-    steps:
-      - 调用模板审核接口通过模板
-      - 查询前台模板列表
-    expected:
-      - 审核动作成功并记录审计日志
-      - 前台可见已发布模板
-    acceptance_criteria:
-      - 用户可以创建、编辑并使用系统模板和自定义模板；运营后台可以审核和发布模板。
-
-  - id: TC-004
-    title: 保存总纲章节大纲角色设定和世界观约束成功
+    title: 项目可维护总纲章节大纲与章节正文三层结构
     level: integration
     type: core_function
     preconditions:
       - 项目已创建
     steps:
       - 保存项目总纲
-      - 保存角色设定和世界观设定
       - 保存章节目标与章节大纲
+      - 为章节保存正文草稿
+      - 查询项目与章节详情
     expected:
-      - 保存成功
-      - 再次读取项目时可返回完整设定
+      - 总纲、章节大纲、章节正文均保存成功
+      - 查询结果可区分三层结构
     acceptance_criteria:
-      - 用户可以编辑总纲和章节大纲，并保存角色设定、世界观约束和章节目标。
+      - AC-02
+
+  - id: TC-003
+    title: 单章生成必须固定产出 3 个剧情走向候选
+    level: integration
+    type: core_function
+    preconditions:
+      - 项目已配置总纲、角色卡、世界观设定、章节目标
+    steps:
+      - 发起单章生成
+      - 查询章节候选方案列表
+    expected:
+      - 返回且仅返回 3 个走向方案
+      - 每个方案均包含核心冲突、关键事件、结尾钩子
+    acceptance_criteria:
+      - AC-03
+
+  - id: TC-004
+    title: 主编对 3 个候选评分并自动选择最高分方案
+    level: integration
+    type: core_function
+    preconditions:
+      - 章节已存在 3 个候选方案
+    steps:
+      - 执行主编评分步骤
+      - 查询候选方案评分结果和选中状态
+    expected:
+      - 每个候选均包含情节推动、故事一致性、吸引力评分及说明
+      - 系统自动选中 final_score 最高的方案
+    acceptance_criteria:
+      - AC-04
 
   - id: TC-005
-    title: 单章生成时系统必须产出 3 个剧情走向方案
+    title: 写手基于选中方案生成章节正文
     level: integration
     type: core_function
     preconditions:
-      - 项目已配置总纲、角色、世界观、章节目标
-    steps:
-      - 发起单章生成任务
-      - 读取该章 outline options
-    expected:
-      - 返回且仅返回 3 个剧情走向方案
-      - 每个方案均包含 core_conflict、key_events、ending_hook
-    acceptance_criteria:
-      - 用户对任一章节发起生成时，系统必须产出 3 个剧情走向方案，且每个方案包含核心冲突、关键事件、结尾钩子。
-
-  - id: TC-006
-    title: 主编对 3 个方案评分并自动选出最高分方案
-    level: integration
-    type: core_function
-    preconditions:
-      - 该章已有 3 个剧情走向方案
-    steps:
-      - 执行主编评分环节
-      - 查询方案评分与 selected 状态
-    expected:
-      - 3 个方案均有情节推动、故事一致性、吸引力评分和说明
-      - final_score 最高的方案被自动选中
-      - 若分数并列，系统按既定稳定规则只选中一个方案
-    acceptance_criteria:
-      - 资深主编 Agent 必须对 3 个剧情走向分别给出评分和说明，并自动选出最高分方案。
-
-  - id: TC-007
-    title: 人工确认模式下用户可查看评分说明并手动确认方案
-    level: e2e
-    type: core_function
-    preconditions:
-      - 项目模式为 manual
-      - 当前章已生成 3 个方案和主编评分
-    steps:
-      - 打开候选方案面板
-      - 查看评分说明
-      - 手动确认非系统推荐方案
-    expected:
-      - 用户可见 3 个方案与对应评分说明
-      - 用户确认的方案成为 selected_outline_option_id
-      - 正文生成使用用户确认方案而非自动推荐方案
-    acceptance_criteria:
-      - 在人工确认模式下，用户可以查看候选方案及评分说明，并手动确认进入正文生成的方案。
-
-  - id: TC-008
-    title: 写手基于选中方案和结构化上下文生成正文
-    level: integration
-    type: core_function
-    preconditions:
-      - 已存在选中的剧情方案
-      - 5 类结构化记忆已就绪
+      - 章节已有选中走向方案
+      - 结构化记忆已就绪
     steps:
       - 触发正文生成
-      - 查询生成输入快照与正文结果
+      - 查询章节草稿
     expected:
-      - 正文生成成功
-      - 生成输入包含全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态
-      - 正文归属到对应 chapter draft
+      - 生成出新的章节正文草稿
+      - 草稿与选中方案及记忆快照建立关联
     acceptance_criteria:
-      - 写手 Agent 必须基于选中的方案与结构化上下文生成章节正文。
+      - AC-05
 
-  - id: TC-009
-    title: 读者对正文进行三维评分并输出问题说明
+  - id: TC-006
+    title: 读者评分需返回三维分数与问题说明
     level: integration
     type: core_function
     preconditions:
-      - 当前章已有正文草稿
+      - 章节已有正文草稿
     steps:
       - 执行读者评分
-      - 查询草稿评分结果
+      - 查询评分结果
     expected:
       - 返回可读性、情绪张力、连贯性评分
-      - 返回问题说明 issue_summary
-      - 保存 final_score
+      - 返回问题说明
+      - 保存平均分 final_score
     acceptance_criteria:
-      - 资深读者 Agent 必须对正文按可读性、情绪张力、连贯性评分，并输出问题说明。
+      - AC-06
 
-  - id: TC-010
-    title: 正文评分低于阈值时自动回流且最多 5 次
+  - id: TC-007
+    title: 正文评分低于 8.0 时自动回流且回流次数不超过 5
     level: integration
     type: boundary
     preconditions:
-      - 该章第一版正文评分低于 8.0
+      - 章节已有首版正文
     steps:
-      - 连续模拟 5 次评分低于阈值
-      - 查询 revision_count 和任务状态
+      - 模拟连续评分低于 8.0 的重写流程
+      - 查询每次 revision_count 和章节状态
     expected:
-      - 每次低分均触发回流重写
-      - revision_count 最大不超过 5
-      - 第 5 次后不再继续回流
+      - 低于 8.0 时自动触发回流
+      - revision_count 累加但最大不超过 5
+      - 达到 5 次后停止新增回流
     acceptance_criteria:
-      - 当正文评分低于通过阈值时，系统必须自动回流重写，单章最大回流次数为 5 次。
+      - AC-07
 
-  - id: TC-011
-    title: 单章最终保留所有版本中的最高分版本
-    level: integration
-    type: core_function
-    preconditions:
-      - 同一章节已产生多个正文版本
-    steps:
-      - 查询所有 draft final_score
-      - 触发章节完成
-    expected:
-      - final_draft_id 指向 final_score 最高的版本
-      - 仅最高分版本标记 is_best_version=true
-    acceptance_criteria:
-      - 系统必须保留单章所有版本中的最高分版本作为最终版本。
-
-  - id: TC-012
-    title: 达到 5 次回流后仍未达标则输出最高分版本并标记人工复核
+  - id: TC-008
+    title: 达到回流上限仍未达标时输出最高分版本并标记人工复核
     level: integration
     type: exception
     preconditions:
-      - 同一章节已完成 5 次回流且所有版本分数均低于 8.0
+      - 章节已达到 5 次回流
+      - 所有版本 final_score 均低于 8.0
     steps:
-      - 查询章节完成结果
+      - 查询章节最终结果
+      - 查询最终草稿和章节标记
     expected:
-      - 章节状态为完成而非持续处理中
-      - 输出最高分版本
+      - 输出所有版本中评分最高的草稿
       - needs_manual_review=true
-      - 前端展示“建议人工复核”
+      - 页面展示“建议人工复核”
     acceptance_criteria:
-      - 若单章回流达到 5 次后仍未达通过阈值，系统仍需输出最高分版本，并标记“建议人工复核”。
+      - AC-08
 
-  - id: TC-013
-    title: 全自动模式支持单次最多连续生成 10 章且按顺序串行执行
+  - id: TC-009
+    title: 系统支持人工确认模式与全自动续写模式
+    level: e2e
+    type: core_function
+    preconditions:
+      - 用户已登录
+    steps:
+      - 创建一个 manual 模式项目并发起单章生成
+      - 创建一个 auto 模式项目并发起自动续写
+    expected:
+      - 两种模式均可创建并运行
+      - manual 模式停留在人工确认节点
+      - auto 模式自动推进章节流水线
+    acceptance_criteria:
+      - AC-09
+
+  - id: TC-010
+    title: 自动续写模式单次最多生成 10 章且任务面板可查看各章状态
     level: e2e
     type: boundary
     preconditions:
-      - 项目模式为 auto
-      - 项目具备至少 10 章可生成目标
+      - auto 模式项目已准备至少 10 章目标
     steps:
       - 发起 target_chapter_count=10 的自动续写任务
-      - 持续查询 run 状态和章节完成顺序
+      - 查询任务详情与任务面板数据
     expected:
-      - 任务创建成功
-      - 完成顺序严格为 chapter 1 到 chapter 10 串行推进
-      - 不出现并行处理中多个 chapter 的状态
+      - 请求成功
+      - 章节按顺序串行推进
+      - 任务面板展示每章状态、评分、回流次数和最终结果
     acceptance_criteria:
-      - 全自动模式下，系统必须支持单次最多连续生成 10 章，并按章节顺序串行执行。
+      - AC-10
 
-  - id: TC-014
-    title: 自动续写请求超过 10 章时返回参数超限错误
-    level: integration
-    type: boundary
+  - id: TC-011
+    title: 段落级重写与扩写返回 diff 和上下文一致性检查结果
+    level: e2e
+    type: core_function
     preconditions:
-      - 项目模式为 auto
+      - 章节已有正文
     steps:
-      - 发起 target_chapter_count=11 的自动续写任务
+      - 对同一章节段落分别执行 rewrite 和 expand
+      - 查看编辑结果
     expected:
-      - 接口拒绝请求
-      - 返回 400 错误
-      - 错误信息明确指出最大支持 10 章
+      - 两类操作均成功
+      - 返回新文本、差异对比结果、一致性检查结果
     acceptance_criteria:
-      - 全自动模式下，系统必须支持单次最多连续生成 10 章，并按章节顺序串行执行。
+      - AC-11
 
-  - id: TC-015
-    title: 每完成一章后更新结构化记忆再进入下一章
+  - id: TC-012
+    title: 章节完成后更新结构化记忆并供下一章消费
     level: integration
     type: core_function
     preconditions:
       - 自动续写任务至少包含 2 章
     steps:
-      - 完成第一章
-      - 查询 MemorySnapshot
-      - 再检查第二章生成输入
+      - 完成第一章全部流程
+      - 查询记忆快照
+      - 检查第二章生成输入
     expected:
-      - 第一章完成后写入新的记忆快照
+      - 记忆快照包含全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态
       - 第二章生成前读取到最新记忆
-      - 快照包含全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态
     acceptance_criteria:
-      - 每完成一章后，系统必须更新结构化记忆，再进入下一章生成。
-      - 系统必须维护至少 5 类结构化记忆：全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态。
+      - AC-12
 
-  - id: TC-016
-    title: 用户可对任意段落发起重写并看到差异与一致性检查结果
-    level: e2e
-    type: core_function
-    preconditions:
-      - 章节已有最终正文
-    steps:
-      - 选择一个段落执行 rewrite
-      - 查看返回结果
-    expected:
-      - 返回新文本版本
-      - 返回 diff_payload
-      - 返回 consistency_report
-    acceptance_criteria:
-      - 用户可以对已生成正文的任意段落发起重写或扩写，并看到差异对比和上下文一致性检查结果。
-
-  - id: TC-017
-    title: 用户可对任意段落发起扩写并看到差异与一致性检查结果
-    level: integration
-    type: core_function
-    preconditions:
-      - 章节已有最终正文
-    steps:
-      - 选择一个段落执行 expand
-      - 查看返回结果
-    expected:
-      - 返回扩写后新版本
-      - 返回 diff_payload
-      - 返回 consistency_report
-    acceptance_criteria:
-      - 用户可以对已生成正文的任意段落发起重写或扩写，并看到差异对比和上下文一致性检查结果。
-
-  - id: TC-018
-    title: 结构化记忆缺失时禁止发起生成
-    level: integration
-    type: exception
-    preconditions:
-      - 项目未保存总纲或关键上下文字段
-    steps:
-      - 发起章节生成
-    expected:
-      - 请求失败
-      - 返回 422 错误
-      - 错误信息指出缺失的上下文类型
-    acceptance_criteria:
-      - 写手 Agent 必须基于选中的方案与结构化上下文生成章节正文。
-      - 系统必须维护至少 5 类结构化记忆：全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态。
-
-  - id: TC-019
-    title: 非项目拥有者访问项目和章节资源被拒绝
+  - id: TC-013
+    title: 后台支持模板审核套餐配置额度调整订单管理和基础报表
     level: integration
     type: permission
     preconditions:
-      - 用户 A 创建项目
-      - 用户 B 已登录但不是项目拥有者
+      - 运营后台账号已登录
     steps:
-      - 用户 B 访问项目详情
-      - 用户 B 发起章节生成
+      - 审核模板
+      - 创建或更新会员套餐
+      - 调整免费额度或月度额度
+      - 查询订单列表和基础运营报表入口
+    expected:
+      - 各接口执行成功
+      - 关键动作写入审计日志
+    acceptance_criteria:
+      - AC-13
+
+  - id: TC-014
+    title: 系统执行敏感题材过滤版权声明展示和日志数据留存
+    level: integration
+    type: exception
+    preconditions:
+      - 内容安全策略已配置
+    steps:
+      - 提交命中敏感题材的项目或生成请求
+      - 查询响应和审计日志
+      - 查看版权声明展示位
+    expected:
+      - 请求按策略被拦截或标记
+      - 返回明确错误或提示
+      - 留存对应日志记录
+      - 用户可见版权声明
+    acceptance_criteria:
+      - AC-14
+
+  - id: TC-015
+    title: 普通用户访问后台接口时返回 403
+    level: integration
+    type: permission
+    preconditions:
+      - 普通用户已登录
+    steps:
+      - 调用后台模板审核接口
+      - 调用后台额度调整接口
     expected:
       - 两个请求均返回 403
-      - 不暴露项目正文和评分详情
+      - 不产生后台变更
     acceptance_criteria:
-      - 权限路径覆盖
+      - AC-13
 
-  - id: TC-020
-    title: 普通用户访问后台运营接口被拒绝
+  - id: TC-016
+    title: 非项目拥有者不能查看或操作他人项目章节
     level: integration
     type: permission
     preconditions:
-      - 普通前台账号已登录
+      - 用户 A 和用户 B 均存在
+      - 用户 A 创建了项目和章节
     steps:
-      - 调用后台套餐配置接口
-      - 调用手动调额接口
-      - 调用订单查询接口
+      - 用户 B 查询用户 A 的项目详情
+      - 用户 B 发起用户 A 章节生成或定稿操作
     expected:
-      - 请求均返回 403
-      - 不产生后台变更和调额日志
+      - 请求返回 403 或 404
+      - 目标项目与章节无状态变化
     acceptance_criteria:
-      - 后台必须支持会员套餐配置、免费章节额度配置、月度额度调整、订单管理、手动调额、基础运营报表。
+      - AC-09
 
-  - id: TC-021
-    title: 配额不足时章节生成被阻止并返回明确错误
+  - id: TC-017
+    title: 自动续写请求超过 10 章时返回 400
+    level: integration
+    type: boundary
+    preconditions:
+      - auto 模式项目已存在
+    steps:
+      - 发起 target_chapter_count=11 的自动续写请求
+    expected:
+      - 返回 400
+      - 错误信息明确说明最大支持 10 章
+    acceptance_criteria:
+      - AC-10
+
+  - id: TC-018
+    title: 缺少总纲或章节目标时发起生成返回 422
     level: integration
     type: exception
     preconditions:
-      - 用户章节额度已耗尽
+      - 项目存在
+      - 未配置总纲或目标章节 brief
     steps:
       - 发起单章生成
     expected:
-      - 请求失败
-      - 返回 429 错误
-      - 不创建生成任务
+      - 返回 422
+      - 错误信息指出缺失的前置条件
     acceptance_criteria:
-      - 后台必须支持会员套餐配置、免费章节额度配置、月度额度调整、订单管理、手动调额、基础运营报表。
+      - AC-02
+      - AC-03
+
+  - id: TC-019
+    title: 额度不足时生成或段落编辑请求返回 429
+    level: integration
+    type: exception
+    preconditions:
+      - 用户额度已耗尽
+      - 项目与章节已存在
+    steps:
+      - 发起单章生成
+      - 发起段落 rewrite
+    expected:
+      - 请求返回 429
+      - 返回额度不足提示
+      - 不创建新的任务或编辑结果
+    acceptance_criteria:
+      - AC-13
+
+  - id: TC-020
+    title: 章节处理中重复发起生成返回 409
+    level: integration
+    type: exception
+    preconditions:
+      - 某章节已有进行中的生成任务
+    steps:
+      - 再次对同一章节发起生成请求
+    expected:
+      - 返回 409
+      - 原任务继续执行，未创建重复任务
+    acceptance_criteria:
+      - AC-03
+      - AC-09
+
+  - id: TC-021
+    title: Agent 服务不可用时返回 503 且任务状态可追踪
+    level: integration
+    type: exception
+    preconditions:
+      - 项目和章节已准备好
+    steps:
+      - 模拟走向生成或评分阶段的 Agent 调用失败
+      - 查询接口响应与任务状态
+    expected:
+      - 返回 503 或任务记录失败状态
+      - 失败原因可追踪
+      - 审计日志记录异常事件
+    acceptance_criteria:
+      - AC-03
+      - AC-04
+      - AC-06
 
   - id: TC-022
-    title: 后台可配置套餐额度调额并查询订单
+    title: 人工确认模式下用户可查看评分说明并手动确认走向
     level: e2e
     type: core_function
     preconditions:
-      - 运营账号已登录后台
+      - 项目模式为 manual
+      - 当前章节已生成 3 个走向和主编评分
     steps:
-      - 创建或更新会员套餐
-      - 配置免费章节额度
-      - 执行月度额度调整和手动调额
-      - 查询订单列表与基础报表
+      - 打开候选方案面板
+      - 查看评分说明
+      - 手动确认一个方案
+      - 继续生成正文
     expected:
-      - 各操作成功
-      - 额度变更立即生效并记录审计日志
-      - 订单列表和基础报表可访问
+      - 用户可见每个方案的评分与说明
+      - 系统使用人工确认的方案继续生成正文
     acceptance_criteria:
-      - 后台必须支持会员套餐配置、免费章节额度配置、月度额度调整、订单管理、手动调额、基础运营报表。
+      - AC-09
 
   - id: TC-023
-    title: 敏感内容命中时执行过滤并留存审计记录
-    level: integration
-    type: exception
-    preconditions:
-      - 内容安全策略已启用
-      - 输入内容命中敏感规则
-    steps:
-      - 提交包含敏感题材的生成请求
-    expected:
-      - 请求被拦截或进入安全处理分支
-      - 返回明确提示
-      - 生成内容不入库
-      - 写入内容安全审计日志
-    acceptance_criteria:
-      - 系统必须支持敏感内容过滤、版权声明展示和必要的数据留存。
-
-  - id: TC-024
-    title: 前台展示版权声明并满足必要数据留存
+    title: 人工确认最终正文版本后章节完成入库
     level: e2e
     type: core_function
     preconditions:
-      - 用户打开创作工作台
+      - 项目模式为 manual
+      - 当前章节已有一个或多个正文版本
     steps:
-      - 查看版权声明展示区域
-      - 执行一次生成任务
-      - 检查关键日志留存
+      - 用户选择最终正文版本
+      - 调用 finalize 接口
+      - 查询章节详情
     expected:
-      - 页面可见版权声明
-      - 生成任务关键节点存在留存记录
+      - 章节完成入库
+      - 最终版本与确认人信息被记录
+      - 审计日志记录人工定稿动作
     acceptance_criteria:
-      - 系统必须支持敏感内容过滤、版权声明展示和必要的数据留存。
+      - AC-09
 
-  - id: TC-025
-    title: 章节状态冲突时拒绝非法推进
-    level: integration
-    type: exception
-    preconditions:
-      - 上一章尚未完成
-    steps:
-      - 直接请求启动下一章自动推进
-    expected:
-      - 返回 409 错误
-      - 不创建新的下一章任务
-    acceptance_criteria:
-      - 全自动模式下，系统必须支持单次最多连续生成 10 章，并按章节顺序串行执行。
-
-  - id: TC-026
-    title: Agent 调用失败时任务返回可恢复错误
-    level: integration
-    type: exception
-    preconditions:
-      - 模拟故事编辑或写手 Agent 服务不可用
-    steps:
-      - 发起章节生成
-    expected:
-      - 返回或记录 503 错误
-      - 任务状态标记失败或待重试
-      - 不写入伪成功结果
-    acceptance_criteria:
-      - 异常路径覆盖
-
-acceptance_coverage:
-  用户可以创建小说项目，并在创建时选择题材、篇幅和模板:
-    - TC-001
-  用户可以创建、编辑并使用系统模板和自定义模板；运营后台可以审核和发布模板:
-    - TC-002
-    - TC-003
-  用户可以编辑总纲和章节大纲，并保存角色设定、世界观约束和章节目标:
-    - TC-004
-  用户对任一章节发起生成时，系统必须产出 3 个剧情走向方案，且每个方案包含核心冲突、关键事件、结尾钩子:
-    - TC-005
-  资深主编 Agent 必须对 3 个剧情走向分别给出评分和说明，并自动选出最高分方案:
-    - TC-006
-  在人工确认模式下，用户可以查看候选方案及评分说明，并手动确认进入正文生成的方案:
-    - TC-007
-  写手 Agent 必须基于选中的方案与结构化上下文生成章节正文:
-    - TC-008
-    - TC-018
-  资深读者 Agent 必须对正文按可读性、情绪张力、连贯性评分，并输出问题说明:
-    - TC-009
-  当正文评分低于通过阈值时，系统必须自动回流重写，单章最大回流次数为 5 次:
-    - TC-010
-  系统必须保留单章所有版本中的最高分版本作为最终版本:
-    - TC-011
-  若单章回流达到 5 次后仍未达通过阈值，系统仍需输出最高分版本，并标记“建议人工复核”:
-    - TC-012
-  全自动模式下，系统必须支持单次最多连续生成 10 章，并按章节顺序串行执行:
-    - TC-013
-    - TC-014
-    - TC-025
-  每完成一章后，系统必须更新结构化记忆，再进入下一章生成:
-    - TC-015
-  用户可以对已生成正文的任意段落发起重写或扩写，并看到差异对比和上下文一致性检查结果:
-    - TC-016
-    - TC-017
-  系统必须维护至少 5 类结构化记忆：全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态:
-    - TC-015
-    - TC-018
-  后台必须支持会员套餐配置、免费章节额度配置、月度额度调整、订单管理、手动调额、基础运营报表:
-    - TC-020
-    - TC-021
-    - TC-022
-  系统必须支持敏感内容过滤、版权声明展示和必要的数据留存:
-    - TC-023
-    - TC-024
+acceptance_criteria_map:
+  AC-01: 系统可创建小说项目，并支持选择题材、篇幅、系统模板或用户自定义模板。
+  AC-02: 系统可维护总纲、章节大纲、章节正文三层创作结构。
+  AC-03: 每章生成流程中，故事编辑 Agent 必须稳定输出 3 个剧情走向候选。
+  AC-04: 资深主编 Agent 必须对 3 个候选走向给出评分和说明，并自动选出最高分方案。
+  AC-05: 写手 Agent 必须基于选中方案生成章节正文。
+  AC-06: 资深读者 Agent 必须对章节正文输出可读性、情绪张力、连贯性评分及问题说明。
+  AC-07: 当章节评分低于 8.0 时，系统必须自动触发回流重写，且单章回流次数不超过 5 次。
+  AC-08: 每章最终必须保留评分最高版本；若 5 次回流后仍未达标，系统必须输出最高分版本并标记建议人工复核。
+  AC-09: 系统必须支持人工确认模式和全自动续写模式两种创作模式。
+  AC-10: 全自动续写模式下，单次任务最多可连续生成 10 章，并可在任务面板查看各章状态。
+  AC-11: 系统必须支持段落级重写和扩写，并提供差异对比与上下文一致性检查结果。
+  AC-12: 系统必须具备结构化记忆能力，至少包含全书摘要、角色卡、世界观设定、已发生事件摘要、章节状态。
+  AC-13: 后台必须支持模板审核、会员套餐配置、免费章节额度/月度额度调整、订单管理、手动调额、基础运营报表。
+  AC-14: 系统必须提供敏感题材过滤、版权声明与日志/数据留存能力。
