@@ -20,7 +20,7 @@
 - specs/intake/{feature_id}.json
 - specs/tests/{feature_id}.md
 - specs/test-cases/{feature_id}.yaml
-
+- specs/design-options/{feature_id}.md
 ---
 
 ## 二、构建阶段输出（Build Phase）
