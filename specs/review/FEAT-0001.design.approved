@@ -1,0 +1,8 @@
+approved by Hui Shen
+feature_id: FEAT-0001
+decision_file: specs/decision/FEAT-0001.md
+prd_file: specs/prd/FEAT-0001.md
+architecture_file: specs/architecture/FEAT-0001.md
+test_plan_file: specs/test-plan/FEAT-0001.md
+test_cases_file: specs/test-cases/FEAT-0001.yaml
+approved_at: 2026-04-23T12:33:32Z
