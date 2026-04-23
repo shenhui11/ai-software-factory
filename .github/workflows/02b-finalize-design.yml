@@ -1,4 +1,4 @@
-name: 02b-生成最终设计
+name: 02b-生成最终设计V1
 
 on:
   workflow_dispatch:
