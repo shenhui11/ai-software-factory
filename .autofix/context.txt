@@ -2,12 +2,50 @@ Workflow: 04-验证阶段
 Event name: workflow_dispatch
 Branch: feat/FEAT-0001-build-24973433407
 Feature ID: FEAT-0001
-Head SHA: 7760ef36790734a1797f9a7256b232c63f1ed3ce
+Head SHA: cdc284a13fc2feba4e90237a534d604c38f2536a
 
 Git status:
-?? .autofix/
+ M .autofix/context.txt
 
-Files:
+Top-level files:
+./.autofix/context.txt
+./.codex
+./.env.example
+./.git/FETCH_HEAD
+./.git/HEAD
+./.git/config
+./.git/config.worktree
+./.git/description
+./.git/index
+./.gitignore
+./AGENTS.md
+./Makefile
+./README.md
+./apps/__init__.py
+./docs/coding-rules.md
+./docs/definition-of-done.md
+./docs/engineering-standards.md
+./docs/feat-0001-run.md
+./docs/feat-0003-run.md
+./docs/release-playbook.md
+./evals/promptfoo.yaml
+./package.json
+./pyproject.toml
+./requirements-dev.txt
+./requirements.txt
+./scripts/bootstrap.sh
+./scripts/collect_artifacts.sh
+./scripts/generate_spec.py
+./scripts/generate_test_manifest.py
+./scripts/run_local_autofix.sh
+./scripts/run_local_ci.sh
+./scripts/run_local_intake.sh
+./scripts/setup_codex.sh
+./scripts/validate_spec.py
+./tests/conftest.py
+./venv/pyvenv.cfg
+
+Apps files:
 apps/__init__.py
 apps/backend/__init__.py
 apps/backend/main.py
@@ -15,6 +53,9 @@ apps/backend/models.py
 apps/backend/services.py
 apps/backend/store.py
 apps/web/README.md
+apps/web/dist/assets/index-BRJSiybk.css
+apps/web/dist/assets/index-BeqZGhvS.js
+apps/web/dist/index.html
 apps/web/index.html
 apps/web/package-lock.json
 apps/web/package.json
@@ -25,42 +66,16 @@ apps/web/src/main.tsx
 apps/web/src/vite-env.d.ts
 apps/web/tsconfig.json
 apps/web/vite.config.ts
-specs/architecture/FEAT-0001.md
-specs/build/FEAT-0001.build.meta
-specs/decision/FEAT-0001.md
-specs/design-options/FEAT-0001.md
-specs/intake/FEAT-0001.json
-specs/prd/FEAT-0001.md
-specs/prompts/architect.final.md
-specs/prompts/architect.md
-specs/prompts/auto-fix.strict.md
-specs/prompts/brainstorm.md
-specs/prompts/builder.md
-specs/prompts/builder.strict.md
-specs/prompts/decision.md
-specs/prompts/design-options.md
-specs/prompts/design-scoring.md
-specs/prompts/product-manager.final.md
-specs/prompts/product-manager.md
-specs/prompts/requirement-clarifier.md
-specs/prompts/reviewer.md
-specs/prompts/scoring.md
-specs/prompts/solution-structurer.md
-specs/prompts/test-designer.final.md
-specs/prompts/test-designer.md
-specs/requirement-card/FEAT-0001.md
-specs/requirement-card/README.md
+
+Tests files:
+tests/conftest.py
+tests/integration/test_feature_flow.py
+tests/unit/test_rules.py
+tests/unit/test_services.py
+
+Specs review:
 specs/review/FEAT-0001.build.completed
 specs/review/FEAT-0001.design.approved
 specs/review/FEAT-0001.requirement.approved
 specs/review/FEAT-0001.verify.passed
 specs/review/README.md
-specs/schema/feature-spec.schema.json
-specs/scoring/FEAT-0001.json
-specs/templates/design-decision-template.md
-specs/test-cases/FEAT-0001.yaml
-specs/test-plan/FEAT-0001.md
-tests/conftest.py
-tests/integration/test_feature_flow.py
-tests/unit/test_rules.py
-tests/unit/test_services.py
