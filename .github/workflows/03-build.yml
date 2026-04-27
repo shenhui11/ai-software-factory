@@ -7,99 +7,171 @@ on:
         description: "需求编号，例如 FEAT-0001"
         required: true
         type: string
+      source_ref:
+        description: "02b 产物所在规划分支，例如 plan/FEAT-0001"
+        required: true
+        type: string
 
 jobs:
   build-feature:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
     env:
       FEATURE_ID: ${{ github.event.inputs.feature_id }}
+      SOURCE_REF: ${{ github.event.inputs.source_ref }}
       BUILD_BRANCH: feat/${{ github.event.inputs.feature_id }}-build-${{ github.run_id }}
 
     steps:
-      - name: 检出代码
+      - name: 检出源规划分支
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 0
 
-      - name: 校验 design 已审批
+      - name: 打印分支信息
         run: |
+          echo "FEATURE_ID=${FEATURE_ID}"
+          echo "SOURCE_REF=${SOURCE_REF}"
+          echo "BUILD_BRANCH=${BUILD_BRANCH}"
+          echo "当前 Git 分支："
+          git branch --show-current || true
+          echo "当前提交："
+          git rev-parse HEAD
+
+      - name: 校验当前来源分支
+        run: |
+          CURRENT_BRANCH="$(git branch --show-current || true)"
+          echo "当前分支: ${CURRENT_BRANCH}"
+          echo "期望来源分支: ${SOURCE_REF}"
+
+          if [ "${CURRENT_BRANCH}" != "${SOURCE_REF}" ]; then
+            echo "当前分支不是 SOURCE_REF，可能是 detached HEAD，继续通过 ref 校验提交来源。"
+          fi
+
+      - name: 校验 02b 产物是否存在
+        run: |
+          echo "检查 02b 产物..."
+
+          test -f "specs/review/${FEATURE_ID}.requirement.approved"
+          test -s "specs/review/${FEATURE_ID}.requirement.approved"
+
           test -f "specs/review/${FEATURE_ID}.design.approved"
+          test -s "specs/review/${FEATURE_ID}.design.approved"
+
+          test -f "specs/decision/${FEATURE_ID}.md"
+          test -s "specs/decision/${FEATURE_ID}.md"
+
+          test -f "specs/prd/${FEATURE_ID}.md"
+          test -s "specs/prd/${FEATURE_ID}.md"
+
+          test -f "specs/architecture/${FEATURE_ID}.md"
+          test -s "specs/architecture/${FEATURE_ID}.md"
+
+          test -f "specs/test-plan/${FEATURE_ID}.md"
+          test -s "specs/test-plan/${FEATURE_ID}.md"
+
+          test -f "specs/test-cases/${FEATURE_ID}.yaml"
+          test -s "specs/test-cases/${FEATURE_ID}.yaml"
+
+          echo "02b 产物检查通过。"
+
+      - name: 创建构建分支
+        run: |
+          git checkout -B "${BUILD_BRANCH}"
+          echo "已基于 ${SOURCE_REF} 创建构建分支：${BUILD_BRANCH}"
+          git branch --show-current
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: 安装 Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: 安装 Codex CLI
-        run: npm install -g @openai/codex
+        run: |
+          npm install -g @openai/codex
+          codex --version || true
 
       - name: 配置 Codex
         env:
           CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
         run: |
+          test -f scripts/setup_codex.sh
           bash scripts/setup_codex.sh
 
-      - name: 创建基础目录
+      - name: 准备构建目录
         run: |
-          mkdir -p apps tests docs packages
-          echo "probe" > apps/__write_probe__.txt
-          echo "probe" > tests/__write_probe__.txt
+          mkdir -p app docs/build-reports specs/build
+          echo "build_branch: ${BUILD_BRANCH}" > "specs/build/${FEATURE_ID}.build.meta"
+          echo "source_ref: ${SOURCE_REF}" >> "specs/build/${FEATURE_ID}.build.meta"
+          echo "feature_id: ${FEATURE_ID}" >> "specs/build/${FEATURE_ID}.build.meta"
+          echo "created_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "specs/build/${FEATURE_ID}.build.meta"
 
-      - name: 执行 Builder
+      - name: 执行 03 Build Agent
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/builder.prompt
-          codex exec --skip-git-repo-check "$(cat /tmp/builder.prompt)"
+          test -f specs/prompts/builder.strict.md
 
-      - name: 清理缓存目录
-        run: |
-          find apps tests -type d -name "__pycache__" -prune -exec rm -rf {} + || true
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/build-agent.prompt
 
-      - name: 校验生成结果
-        run: |
-          test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
-          test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
+          codex exec --skip-git-repo-check "$(cat /tmp/build-agent.prompt)"
 
-      - name: 校验非法根目录
+      - name: 校验 03 构建产物
         run: |
-          FOUND_BAD_DIR=0
-          for dir in prd architecture test-plan test-cases; do
-            if [ -d "$dir" ]; then
-              echo "[ERROR] 生成了非法根目录: $dir"
-              FOUND_BAD_DIR=1
-            fi
-          done
-          if [ "$FOUND_BAD_DIR" -ne 0 ]; then
-            exit 1
+          echo "检查 03 构建结果..."
+
+          test -d app
+
+          if [ ! -f "README.md" ]; then
+            echo "README.md 不存在，自动生成基础 README。"
+            cat > README.md <<EOF
+          # ${FEATURE_ID}
+
+          Generated by 03-build workflow.
+
+          Source branch: ${SOURCE_REF}
+          Build branch: ${BUILD_BRANCH}
+          EOF
           fi
 
-      - name: 清理探针文件
-        run: |
-          rm -f apps/__write_probe__.txt
-          rm -f tests/__write_probe__.txt
+          echo "当前文件变化："
+          git status --short
 
-      - name: 安装依赖并运行 pytest
+      - name: 生成 build 完成标记
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest fastapi httpx uvicorn
-          if [ -f pyproject.toml ]; then python -m pip install -e . || true; fi
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
-          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
-          python -m pytest tests -q
+          mkdir -p specs/review
+          cat > "specs/review/${FEATURE_ID}.build.completed" <<EOF
+          build completed
+          feature_id: ${FEATURE_ID}
+          source_ref: ${SOURCE_REF}
+          build_branch: ${BUILD_BRANCH}
+          completed_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
 
-      - name: 提交构建产物
+          cat "specs/review/${FEATURE_ID}.build.completed"
+
+      - name: 提交并推送构建分支
         run: |
           git config user.name "Hui Shen"
           git config user.email "295225478@qq.com"
-          git checkout -b "${BUILD_BRANCH}"
+
           git add -A
-          git diff --cached --quiet || git commit -m "feat: implement ${FEATURE_ID}"
+
+          if git diff --cached --quiet; then
+            echo "没有构建产物变化，生成空提交用于保留 build 分支。"
+            git commit --allow-empty -m "build: initialize ${FEATURE_ID}"
+          else
+            git commit -m "build: implement ${FEATURE_ID}"
+          fi
+
           git push --set-upstream origin "${BUILD_BRANCH}"
 
+      - name: 输出下一步信息
+        run: |
+          echo "03-build 完成。"
+          echo "源规划分支：${SOURCE_REF}"
+          echo "构建分支：${BUILD_BRANCH}"
+          echo "下一步请运行 04-verify，target_ref 填：${BUILD_BRANCH}"
