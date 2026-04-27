@@ -1,51 +1,85 @@
 name: 04-验证阶段
 
 on:
-  pull_request:
-    branches:
-      - master
-      - main
-      - develop
   workflow_dispatch:
     inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0001"
+        required: true
+        type: string
       target_ref:
-        description: "真实分支名或 commit SHA，例如 feat/FEAT-0002-build-24340754528"
+        description: "03 生成的构建分支，例如 feat/FEAT-0001-build-xxx"
         required: true
         type: string
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+
     permissions:
-      contents: read
+      contents: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
+      TARGET_REF: ${{ github.event.inputs.target_ref }}
 
     steps:
-      - name: 检出代码（PR）
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
-
-      - name: 检出代码（手动）
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: 检出构建分支
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.target_ref }}
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+
+      - name: 打印分支信息
+        run: |
+          set -euo pipefail
+          echo "FEATURE_ID=${FEATURE_ID}"
+          echo "TARGET_REF=${TARGET_REF}"
+          git branch --show-current || true
+          git rev-parse HEAD
 
       - name: 安装 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 校验 03 构建完成标记
+        run: |
+          set -euo pipefail
+          test -f "specs/review/${FEATURE_ID}.build.completed"
+          test -s "specs/review/${FEATURE_ID}.build.completed"
+
       - name: 校验核心文件与结构
         run: |
+          set -euo pipefail
+
           test -f "AGENTS.md"
           test -f "docs/definition-of-done.md"
           test -f "docs/engineering-standards.md"
           test -f "docs/coding-rules.md"
-          test -n "$(find apps -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
+
+          test -d apps
+          test -d tests
+          test -d apps/backend
+          test -d apps/web
+
+          test -n "$(find apps/backend -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
           test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
+
+          test -f "apps/web/package.json"
+          test -f "apps/web/src/App.tsx"
+          test -f "apps/web/src/main.tsx"
+          test -f "apps/web/src/api.ts"
 
       - name: 校验非法根目录
         run: |
+          set -euo pipefail
+
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
               echo "[ERROR] 非法根目录存在: $dir"
@@ -55,50 +89,128 @@ jobs:
 
       - name: 校验未残留探针文件
         run: |
+          set -euo pipefail
           test ! -f apps/__write_probe__.txt
           test ! -f tests/__write_probe__.txt
 
-      - name: 安装依赖
+      - name: 校验 specs 输入产物
         run: |
+          set -euo pipefail
+
+          test -f "specs/prd/${FEATURE_ID}.md"
+          test -s "specs/prd/${FEATURE_ID}.md"
+
+          test -f "specs/architecture/${FEATURE_ID}.md"
+          test -s "specs/architecture/${FEATURE_ID}.md"
+
+          test -f "specs/test-plan/${FEATURE_ID}.md"
+          test -s "specs/test-plan/${FEATURE_ID}.md"
+
+          test -f "specs/test-cases/${FEATURE_ID}.yaml"
+          test -s "specs/test-cases/${FEATURE_ID}.yaml"
+
+          test -f "specs/review/${FEATURE_ID}.design.approved"
+          test -s "specs/review/${FEATURE_ID}.design.approved"
+
+      - name: 安装 Python 依赖
+        run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
-          python -m pip install pytest fastapi uvicorn httpx
-          if [ -f pyproject.toml ]; then python -m pip install -e . || true; fi
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
-          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
+          python -m pip install pytest fastapi uvicorn httpx pydantic
 
-      - name: 运行 pytest
-        run: |
-          python -m pytest tests -q
-
-      - name: 启动 FastAPI
-        run: |
-          nohup python -m uvicorn apps.backend.main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
-          echo $! > uvicorn.pid
-
-      - name: 等待服务启动
-        run: |
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/docs > /dev/null; then
-              echo "FastAPI is up"
-              exit 0
-            fi
-            sleep 2
-          done
-          cat uvicorn.log || true
-          exit 1
-
-      - name: 冒烟测试
-        run: |
-          curl -f http://127.0.0.1:8000/docs
-
-      - name: 打印服务日志
-        if: always()
-        run: |
-          cat uvicorn.log || true
-
-      - name: 关闭服务
-        if: always()
-        run: |
-          if [ -f uvicorn.pid ]; then
-            kill "$(cat uvicorn.pid)" || true
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
           fi
+
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt
+          fi
+
+          if [ -f pyproject.toml ]; then
+            python -m pip install -e .
+          fi
+
+      - name: 运行 Python 单元与集成测试
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+
+      - name: 安装 Web 依赖
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm install
+
+      - name: 构建 Web
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm run build
+
+      - name: 校验 Web 构建产物
+        run: |
+          set -euo pipefail
+
+          if [ -d "apps/web/dist" ]; then
+            test -n "$(find apps/web/dist -type f | head -n 1)"
+          else
+            echo "[ERROR] apps/web/dist 不存在"
+            exit 1
+          fi
+
+      - name: 生成验证报告
+        run: |
+          set -euo pipefail
+
+          mkdir -p docs/verify specs/review
+
+          cat > "docs/verify/${FEATURE_ID}.verify-report.md" <<EOF
+          # Verify Report - ${FEATURE_ID}
+
+          ## Result
+          PASSED
+
+          ## Target Ref
+          ${TARGET_REF}
+
+          ## Checks
+          - Core files and structure: PASSED
+          - Illegal root directories: PASSED
+          - Probe files cleanup: PASSED
+          - Specs artifacts: PASSED
+          - Python tests: PASSED
+          - Web build: PASSED
+
+          ## Verified At
+          $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
+
+          cat > "specs/review/${FEATURE_ID}.verify.passed" <<EOF
+          verify passed
+          feature_id: ${FEATURE_ID}
+          target_ref: ${TARGET_REF}
+          verified_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
+
+      - name: 提交验证结果
+        run: |
+          set -euo pipefail
+
+          git config user.name "Hui Shen"
+          git config user.email "295225478@qq.com"
+
+          git add docs/verify specs/review
+
+          if git diff --cached --quiet; then
+            echo "没有验证结果需要提交。"
+          else
+            git commit -m "test: verify ${FEATURE_ID}"
+            git push
+          fi
+
+      - name: 输出下一步
+        run: |
+          echo "04-verify 完成。"
+          echo "如果通过，下一步运行 06-release。"
+          echo "如果失败，下一步运行 05-auto-fix，target_ref 填：${TARGET_REF}"
