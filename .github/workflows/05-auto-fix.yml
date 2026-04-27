@@ -1,23 +1,63 @@
 name: 05-自动修复
 
 on:
+  workflow_dispatch:
+    inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0001"
+        required: true
+        type: string
+      target_ref:
+        description: "需要修复的构建分支，例如 feat/FEAT-0001-build-xxx"
+        required: true
+        type: string
+
   workflow_run:
     workflows: ["04-验证阶段"]
     types: [completed]
 
 jobs:
   auto-fix:
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure' }}
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
       actions: read
 
+    env:
+      FEATURE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.feature_id || '' }}
+      TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_ref || github.event.workflow_run.head_branch }}
+
     steps:
-      - name: 检出代码
+      - name: 检出待修复分支
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_branch }}
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+
+      - name: 推导 feature_id
+        run: |
+          set -euo pipefail
+
+          if [ -z "${FEATURE_ID}" ]; then
+            if [ -f ".autofix/feature_id.txt" ]; then
+              FEATURE_ID="$(cat .autofix/feature_id.txt)"
+            else
+              FEATURE_ID="$(ls specs/review/*.build.completed 2>/dev/null | head -n 1 | sed -E 's#specs/review/(.*)\.build\.completed#\1#')"
+            fi
+          fi
+
+          if [ -z "${FEATURE_ID}" ]; then
+            echo "[ERROR] 无法推导 FEATURE_ID"
+            exit 1
+          fi
+
+          echo "FEATURE_ID=${FEATURE_ID}" >> "$GITHUB_ENV"
+          echo "TARGET_REF=${TARGET_REF}" >> "$GITHUB_ENV"
+
+          echo "FEATURE_ID=${FEATURE_ID}"
+          echo "TARGET_REF=${TARGET_REF}"
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -30,10 +70,18 @@ jobs:
           python-version: "3.11"
 
       - name: 安装 Codex CLI
-        run: npm install -g @openai/codex
-
-      - name: 生成 Codex 配置
         run: |
+          set -euo pipefail
+          npm install -g @openai/codex
+          codex --version || true
+
+      - name: 配置 Codex
+        env:
+          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${CODEX_BASE_URL}"
+
           mkdir -p ~/.codex
           cat > ~/.codex/config.toml <<EOF
           model = "gpt-5.4"
@@ -48,49 +96,73 @@ jobs:
           wire_api = "responses"
           env_key = "CODEX_API_KEY"
           EOF
-        env:
-          CODEX_BASE_URL: ${{ secrets.CODEX_BASE_URL }}
 
       - name: 安装项目依赖
         run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
-          if [ -f pyproject.toml ]; then python -m pip install -e . || true; fi
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt || true; fi
-          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt || true; fi
-          python -m pip install pytest
+
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt || true
+          fi
+
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt || true
+          fi
+
+          python -m pip install pytest fastapi uvicorn httpx pydantic
 
       - name: 收集失败上下文
         run: |
+          set -euo pipefail
+
           mkdir -p .autofix
-          echo "Workflow: ${{ github.event.workflow_run.name }}" > .autofix/context.txt
-          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}" >> .autofix/context.txt
-          echo "Branch: ${{ github.event.workflow_run.head_branch }}" >> .autofix/context.txt
-          echo "Head SHA: ${{ github.event.workflow_run.head_sha }}" >> .autofix/context.txt
-          echo "" >> .autofix/context.txt
-          echo "最近的 git 状态：" >> .autofix/context.txt
-          git status --short >> .autofix/context.txt || true
-      
+
+          {
+            echo "Workflow: 04-验证阶段"
+            echo "Event name: ${{ github.event_name }}"
+            echo "Branch: ${TARGET_REF}"
+            echo "Feature ID: ${FEATURE_ID}"
+            echo "Head SHA: $(git rev-parse HEAD)"
+            echo ""
+            echo "Git status:"
+            git status --short || true
+            echo ""
+            echo "Files:"
+            find apps tests specs -maxdepth 4 -type f | sort || true
+          } > .autofix/context.txt
+
       - name: 预检查 auto-fix prompt
         run: |
+          set -euo pipefail
           test -f "specs/prompts/auto-fix.strict.md"
           test -f "AGENTS.md"
 
-      - name: 执行自动修复
-        env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+      - name: 生成自动修复 Prompt
         run: |
-          codex exec --skip-git-repo-check "$(cat specs/prompts/auto-fix.strict.md)"
+          set -euo pipefail
+
+          cat specs/prompts/auto-fix.strict.md > /tmp/auto-fix.prompt
+
+          cat >> /tmp/auto-fix.prompt <<'EOF'
+
+          ## 本次自动修复任务
 
           请先阅读：
           - AGENTS.md
           - .autofix/context.txt
+          - specs/prd/{feature_id}.md
+          - specs/architecture/{feature_id}.md
+          - specs/test-plan/{feature_id}.md
+          - specs/test-cases/{feature_id}.yaml
           - pyproject.toml
           - Makefile
           - tests/ 下的失败相关文件
           - apps/ 下的相关实现文件
 
           目标：
-          修复导致 04-验证阶段 失败的最小必要问题。
+          修复导致 04-验证阶段失败的最小必要问题。
 
           强制约束：
           1. 只能修复最小范围。
@@ -101,38 +173,74 @@ jobs:
              - architecture
              - test-plan
              - test-cases
-          5. 只允许修改：
+          5. 如果发现上述非法根目录存在，必须删除它们。
+          6. 只允许修改：
              - apps/
              - packages/
              - tests/
              - docs/
              - pyproject.toml
-             - requirements*.txt
+             - requirements.txt
+             - requirements-dev.txt
              - Makefile
 
           完成后：
           - 输出修改文件列表
           - 输出修复原因
           - 输出测试命令
-          "
+          EOF
+
+          sed -i "s/{feature_id}/${FEATURE_ID}/g" /tmp/auto-fix.prompt
+
+      - name: 执行自动修复
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          set -euo pipefail
+          codex exec --skip-git-repo-check "$(cat /tmp/auto-fix.prompt)"
 
       - name: 再次检查非法根目录
         run: |
+          set -euo pipefail
+
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
-              echo "[ERROR] 非法根目录: $dir"
+              echo "[ERROR] 非法根目录仍然存在: $dir"
               exit 1
             fi
           done
 
       - name: 再跑 pytest
         run: |
-          python -m pytest tests -q
+          set -euo pipefail
+          PYTHONPATH=. python -m pytest -q
+
+      - name: 再跑 Web build
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm install
+          npm run build
 
       - name: 提交自动修复结果
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add .
-          git diff --cached --quiet || git commit -m "fix: 自动修复 verify 失败"
-          git push
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "没有自动修复变更。"
+          else
+            git commit -m "fix: auto-fix verify failure ${FEATURE_ID}"
+            git push
+          fi
+
+      - name: 输出下一步
+        run: |
+          echo "05-auto-fix 完成。"
+          echo "请重新运行 04-verify。"
+          echo "feature_id=${FEATURE_ID}"
+          echo "target_ref=${TARGET_REF}"
