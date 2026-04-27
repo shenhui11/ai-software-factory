@@ -113,9 +113,9 @@ jobs:
         env:
           CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
         run: |
-          test -f specs/prompts/build-agent.md
+          test -f specs/prompts/builder.strict.md
 
-          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/build-agent.md > /tmp/build-agent.prompt
+          sed "s/{feature_id}/${FEATURE_ID}/g" specs/prompts/builder.strict.md > /tmp/build-agent.prompt
 
           codex exec --skip-git-repo-check "$(cat /tmp/build-agent.prompt)"
 
