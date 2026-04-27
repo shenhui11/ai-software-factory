@@ -13,6 +13,12 @@ pip install -r requirements-dev.txt
 uvicorn apps.backend.main:app --host 0.0.0.0 --port 8000
 ```
 
+```bash
+cd apps/web
+npm install
+npm run build
+```
+
 ## 测试
 
 ```bash
