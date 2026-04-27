@@ -1,24 +1,232 @@
-name: 06-release
+name: 06-发布阶段
 
 on:
   workflow_dispatch:
     inputs:
+      feature_id:
+        description: "需求编号，例如 FEAT-0001"
+        required: true
+        type: string
+      target_ref:
+        description: "04 验证通过的构建分支，例如 feat/FEAT-0001-build-xxx"
+        required: true
+        type: string
       version:
+        description: "发布版本，例如 v0.1.0-feat-0001"
         required: true
         type: string
 
 jobs:
-  deploy-staging:
+  release:
     runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "Deploy staging for version ${{ github.event.inputs.version }}"
 
-  deploy-production:
-    needs: deploy-staging
-    runs-on: ubuntu-latest
-    environment: production
+    permissions:
+      contents: write
+
+    env:
+      FEATURE_ID: ${{ github.event.inputs.feature_id }}
+      TARGET_REF: ${{ github.event.inputs.target_ref }}
+      VERSION: ${{ github.event.inputs.version }}
+      WORKFLOW_VERSION: "06-release-v1-gated"
+
     steps:
-      - uses: actions/checkout@v4
-      - run: echo "Deploy production for version ${{ github.event.inputs.version }}"
+      - name: 检出验证通过的构建分支
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+
+      - name: 打印 release 信息
+        run: |
+          set -euo pipefail
+          echo "WORKFLOW_VERSION=${WORKFLOW_VERSION}"
+          echo "FEATURE_ID=${FEATURE_ID}"
+          echo "TARGET_REF=${TARGET_REF}"
+          echo "VERSION=${VERSION}"
+          git branch --show-current || true
+          git rev-parse HEAD
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 发布前硬门禁校验
+        run: |
+          set -euo pipefail
+
+          echo "===== 校验 03 build 完成标记 ====="
+          test -f "specs/review/${FEATURE_ID}.build.completed"
+          test -s "specs/review/${FEATURE_ID}.build.completed"
+
+          echo "===== 校验 04 verify 通过标记 ====="
+          test -f "specs/review/${FEATURE_ID}.verify.passed"
+          test -s "specs/review/${FEATURE_ID}.verify.passed"
+
+          echo "===== 校验核心产物 ====="
+          test -d apps/backend
+          test -d apps/web
+          test -d tests
+
+          test -f "apps/web/package.json"
+          test -f "apps/web/src/App.tsx"
+          test -f "apps/web/src/main.tsx"
+          test -f "apps/web/src/api.ts"
+
+          test -n "$(find apps/backend -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
+          test -n "$(find tests -type f -name '*.py' ! -path '*/__pycache__/*' | head -n 1)"
+
+          echo "===== 校验 specs 产物 ====="
+          test -f "specs/prd/${FEATURE_ID}.md"
+          test -f "specs/architecture/${FEATURE_ID}.md"
+          test -f "specs/test-plan/${FEATURE_ID}.md"
+          test -f "specs/test-cases/${FEATURE_ID}.yaml"
+
+          echo "===== 校验非法根目录 ====="
+          for dir in prd architecture test-plan test-cases; do
+            if [ -d "$dir" ]; then
+              echo "[ERROR] 非法根目录存在: $dir"
+              exit 1
+            fi
+          done
+
+          echo "发布前硬门禁通过。"
+
+      - name: 安装 Python 依赖
+        run: |
+          set -euo pipefail
+
+          python -m pip install --upgrade pip
+
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          else
+            python -m pip install fastapi uvicorn httpx pydantic
+          fi
+
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt
+          else
+            python -m pip install pytest
+          fi
+
+          if [ -f pyproject.toml ]; then
+            python -m pip install -e . || echo "[WARN] editable install failed, continue with PYTHONPATH=."
+          fi
+
+      - name: Release 前再次运行 Python 测试
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python -m pytest -q
+
+      - name: 安装 Web 依赖
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm install
+
+      - name: Release 前再次构建 Web
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          npm run build
+
+      - name: 校验 Web 构建产物
+        run: |
+          set -euo pipefail
+          test -d apps/web/dist
+          test -n "$(find apps/web/dist -type f | head -n 1)"
+
+      - name: 生成发布报告和发布标记
+        run: |
+          set -euo pipefail
+
+          mkdir -p docs/release specs/review
+
+          cat > "docs/release/${FEATURE_ID}.${VERSION}.release-report.md" <<EOF
+          # Release Report - ${FEATURE_ID}
+
+          ## Result
+          RELEASE READY
+
+          ## Version
+          ${VERSION}
+
+          ## Target Ref
+          ${TARGET_REF}
+
+          ## Workflow Version
+          ${WORKFLOW_VERSION}
+
+          ## Included Artifacts
+          - Backend: apps/backend
+          - Web: apps/web
+          - Tests: tests
+          - PRD: specs/prd/${FEATURE_ID}.md
+          - Architecture: specs/architecture/${FEATURE_ID}.md
+          - Test Plan: specs/test-plan/${FEATURE_ID}.md
+          - Test Cases: specs/test-cases/${FEATURE_ID}.yaml
+
+          ## Gates
+          - 03 build completed: PASSED
+          - 04 verify passed: PASSED
+          - Python tests: PASSED
+          - Web build: PASSED
+          - Illegal root directories: PASSED
+
+          ## Released At
+          $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
+
+          cat > "specs/review/${FEATURE_ID}.release.ready" <<EOF
+          release ready
+          feature_id: ${FEATURE_ID}
+          version: ${VERSION}
+          target_ref: ${TARGET_REF}
+          workflow_version: ${WORKFLOW_VERSION}
+          released_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
+
+      - name: 提交发布报告
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git add docs/release specs/review
+
+          if git diff --cached --quiet; then
+            echo "没有发布报告需要提交。"
+          else
+            git commit -m "release: prepare ${FEATURE_ID} ${VERSION}"
+            git push
+          fi
+
+      - name: 创建并推送 Git Tag
+        run: |
+          set -euo pipefail
+
+          git fetch --tags
+
+          if git rev-parse "${VERSION}" >/dev/null 2>&1; then
+            echo "[ERROR] tag 已存在: ${VERSION}"
+            exit 1
+          fi
+
+          git tag -a "${VERSION}" -m "Release ${FEATURE_ID} ${VERSION}"
+          git push origin "${VERSION}"
+
+      - name: 输出发布结果
+        run: |
+          set -euo pipefail
+          echo "06-release 完成。"
+          echo "FEATURE_ID=${FEATURE_ID}"
+          echo "TARGET_REF=${TARGET_REF}"
+          echo "VERSION=${VERSION}"
+          echo "已生成 release report 和 tag。"
