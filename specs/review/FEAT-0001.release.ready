@@ -1,0 +1,6 @@
+release ready
+feature_id: FEAT-0001
+version: v0.1.0-feat-0001
+target_ref: feat/FEAT-0001-build-24973433407
+workflow_version: 06-release-v1-gated
+released_at: 2026-04-27T05:51:18Z
