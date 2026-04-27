@@ -28,6 +28,7 @@ jobs:
     env:
       FEATURE_ID: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.feature_id || '' }}
       TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target_ref || github.event.workflow_run.head_branch }}
+      WORKFLOW_VERSION: "05-auto-fix-v2-strict"
 
     steps:
       - name: 检出待修复分支
@@ -36,16 +37,23 @@ jobs:
           ref: ${{ env.TARGET_REF }}
           fetch-depth: 0
 
+      - name: 打印 workflow 版本和分支信息
+        run: |
+          set -euo pipefail
+
+          echo "WORKFLOW_VERSION=${WORKFLOW_VERSION}"
+          echo "EVENT_NAME=${{ github.event_name }}"
+          echo "FEATURE_ID=${FEATURE_ID}"
+          echo "TARGET_REF=${TARGET_REF}"
+          git branch --show-current || true
+          git rev-parse HEAD
+
       - name: 推导 feature_id
         run: |
           set -euo pipefail
 
           if [ -z "${FEATURE_ID}" ]; then
-            if [ -f ".autofix/feature_id.txt" ]; then
-              FEATURE_ID="$(cat .autofix/feature_id.txt)"
-            else
-              FEATURE_ID="$(ls specs/review/*.build.completed 2>/dev/null | head -n 1 | sed -E 's#specs/review/(.*)\.build\.completed#\1#')"
-            fi
+            FEATURE_ID="$(ls specs/review/*.build.completed 2>/dev/null | head -n 1 | sed -E 's#specs/review/(.*)\.build\.completed#\1#')"
           fi
 
           if [ -z "${FEATURE_ID}" ]; then
@@ -104,14 +112,18 @@ jobs:
           python -m pip install --upgrade pip
 
           if [ -f requirements.txt ]; then
-            python -m pip install -r requirements.txt || true
+            python -m pip install -r requirements.txt
           fi
 
           if [ -f requirements-dev.txt ]; then
-            python -m pip install -r requirements-dev.txt || true
+            python -m pip install -r requirements-dev.txt
           fi
 
           python -m pip install pytest fastapi uvicorn httpx pydantic
+
+          if [ -f pyproject.toml ]; then
+            python -m pip install -e . || echo "[WARN] editable install failed, continue with PYTHONPATH=."
+          fi
 
       - name: 收集失败上下文
         run: |
@@ -129,9 +141,20 @@ jobs:
             echo "Git status:"
             git status --short || true
             echo ""
-            echo "Files:"
-            find apps tests specs -maxdepth 4 -type f | sort || true
+            echo "Top-level files:"
+            find . -maxdepth 2 -type f | sort || true
+            echo ""
+            echo "Apps files:"
+            find apps -maxdepth 5 -type f | sort || true
+            echo ""
+            echo "Tests files:"
+            find tests -maxdepth 5 -type f | sort || true
+            echo ""
+            echo "Specs review:"
+            find specs/review -maxdepth 2 -type f | sort || true
           } > .autofix/context.txt
+
+          cat .autofix/context.txt
 
       - name: 预检查 auto-fix prompt
         run: |
@@ -164,17 +187,28 @@ jobs:
           目标：
           修复导致 04-验证阶段失败的最小必要问题。
 
-          强制约束：
-          1. 只能修复最小范围。
-          2. 不允许删除测试、跳过测试、放宽断言来伪造通过。
-          3. 不允许关闭 verify 步骤。
-          4. 不允许创建根目录：
+          优先修复以下常见问题：
+          1. 删除非法根目录：
              - prd
              - architecture
              - test-plan
              - test-cases
-          5. 如果发现上述非法根目录存在，必须删除它们。
-          6. 只允许修改：
+          2. 修复 pytest 失败
+          3. 修复 Web build 失败
+          4. 修复缺失的启动说明或测试说明
+
+          强制约束：
+          1. 只能修复最小范围。
+          2. 不允许删除测试、跳过测试、放宽断言来伪造通过。
+          3. 不允许关闭 verify 步骤。
+          4. 不允许修改 04-验证阶段 workflow 来绕过校验。
+          5. 不允许创建根目录：
+             - prd
+             - architecture
+             - test-plan
+             - test-cases
+          6. 如果发现上述非法根目录存在，必须删除它们。
+          7. 只允许修改：
              - apps/
              - packages/
              - tests/
@@ -183,14 +217,25 @@ jobs:
              - requirements.txt
              - requirements-dev.txt
              - Makefile
+             - package.json
+             - pnpm-workspace.yaml
 
-          完成后：
-          - 输出修改文件列表
-          - 输出修复原因
-          - 输出测试命令
+          完成前必须执行：
+          - find apps -type f | sort
+          - find tests -type f | sort
+          - git status --short
+
+          完成后输出：
+          - 修改文件列表
+          - 修复原因
+          - 测试命令
+          - 未完成项
           EOF
 
           sed -i "s/{feature_id}/${FEATURE_ID}/g" /tmp/auto-fix.prompt
+
+          echo "===== AUTO FIX PROMPT PREVIEW ====="
+          sed -n '1,220p' /tmp/auto-fix.prompt
 
       - name: 执行自动修复
         env:
@@ -215,12 +260,53 @@ jobs:
           set -euo pipefail
           PYTHONPATH=. python -m pytest -q
 
-      - name: 再跑 Web build
+      - name: 安装 Web 依赖并构建
         working-directory: apps/web
         run: |
           set -euo pipefail
           npm install
           npm run build
+
+      - name: 校验 Web 构建产物
+        run: |
+          set -euo pipefail
+          test -d apps/web/dist
+          test -n "$(find apps/web/dist -type f | head -n 1)"
+
+      - name: 生成自动修复标记
+        run: |
+          set -euo pipefail
+
+          mkdir -p specs/review docs/auto-fix
+
+          cat > "docs/auto-fix/${FEATURE_ID}.auto-fix-report.md" <<EOF
+          # Auto Fix Report - ${FEATURE_ID}
+
+          ## Result
+          COMPLETED
+
+          ## Target Ref
+          ${TARGET_REF}
+
+          ## Workflow Version
+          ${WORKFLOW_VERSION}
+
+          ## Checks After Fix
+          - Illegal root directories: PASSED
+          - Python tests: PASSED
+          - Web build: PASSED
+
+          ## Fixed At
+          $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
+
+          cat > "specs/review/${FEATURE_ID}.auto-fix.completed" <<EOF
+          auto-fix completed
+          feature_id: ${FEATURE_ID}
+          target_ref: ${TARGET_REF}
+          workflow_version: ${WORKFLOW_VERSION}
+          completed_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          EOF
 
       - name: 提交自动修复结果
         run: |
@@ -240,6 +326,7 @@ jobs:
 
       - name: 输出下一步
         run: |
+          set -euo pipefail
           echo "05-auto-fix 完成。"
           echo "请重新运行 04-verify。"
           echo "feature_id=${FEATURE_ID}"
