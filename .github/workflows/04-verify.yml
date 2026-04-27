@@ -22,6 +22,7 @@ jobs:
     env:
       FEATURE_ID: ${{ github.event.inputs.feature_id }}
       TARGET_REF: ${{ github.event.inputs.target_ref }}
+      WORKFLOW_VERSION: "04-verify-v3-hard-gate"
 
     steps:
       - name: 检出构建分支
@@ -30,9 +31,10 @@ jobs:
           ref: ${{ env.TARGET_REF }}
           fetch-depth: 0
 
-      - name: 打印分支信息
+      - name: 打印 workflow 版本和分支信息
         run: |
           set -euo pipefail
+          echo "WORKFLOW_VERSION=${WORKFLOW_VERSION}"
           echo "FEATURE_ID=${FEATURE_ID}"
           echo "TARGET_REF=${TARGET_REF}"
           git branch --show-current || true
@@ -48,16 +50,15 @@ jobs:
         with:
           node-version: "20"
 
-      - name: 校验 03 构建完成标记
+      - name: 硬门禁校验
         run: |
           set -euo pipefail
+
+          echo "===== 校验 03 构建完成标记 ====="
           test -f "specs/review/${FEATURE_ID}.build.completed"
           test -s "specs/review/${FEATURE_ID}.build.completed"
 
-      - name: 校验核心文件与结构
-        run: |
-          set -euo pipefail
-
+          echo "===== 校验核心文件与结构 ====="
           test -f "AGENTS.md"
           test -f "docs/definition-of-done.md"
           test -f "docs/engineering-standards.md"
@@ -76,27 +77,20 @@ jobs:
           test -f "apps/web/src/main.tsx"
           test -f "apps/web/src/api.ts"
 
-      - name: 校验非法根目录
-        run: |
-          set -euo pipefail
-
+          echo "===== 校验非法根目录 ====="
           for dir in prd architecture test-plan test-cases; do
             if [ -d "$dir" ]; then
               echo "[ERROR] 非法根目录存在: $dir"
+              echo "请在 05-auto-fix 或手动删除：rm -rf $dir"
               exit 1
             fi
           done
 
-      - name: 校验未残留探针文件
-        run: |
-          set -euo pipefail
+          echo "===== 校验未残留探针文件 ====="
           test ! -f apps/__write_probe__.txt
           test ! -f tests/__write_probe__.txt
 
-      - name: 校验 specs 输入产物
-        run: |
-          set -euo pipefail
-
+          echo "===== 校验 specs 输入产物 ====="
           test -f "specs/prd/${FEATURE_ID}.md"
           test -s "specs/prd/${FEATURE_ID}.md"
 
@@ -112,29 +106,34 @@ jobs:
           test -f "specs/review/${FEATURE_ID}.design.approved"
           test -s "specs/review/${FEATURE_ID}.design.approved"
 
+          echo "硬门禁校验通过。"
+
       - name: 安装 Python 依赖
         run: |
           set -euo pipefail
 
           python -m pip install --upgrade pip
-          python -m pip install pytest fastapi uvicorn httpx pydantic
 
           if [ -f requirements.txt ]; then
             python -m pip install -r requirements.txt
+          else
+            python -m pip install fastapi uvicorn httpx pydantic
           fi
 
           if [ -f requirements-dev.txt ]; then
             python -m pip install -r requirements-dev.txt
+          else
+            python -m pip install pytest
           fi
 
           if [ -f pyproject.toml ]; then
-            python -m pip install -e . || echo "[WARN] editable install failed, continue with PYTHONPATH"
+            python -m pip install -e . || echo "[WARN] editable install failed, continue with PYTHONPATH=."
           fi
 
       - name: 运行 Python 单元与集成测试
         run: |
           set -euo pipefail
-          python -m pytest -q
+          PYTHONPATH=. python -m pytest -q
 
       - name: 安装 Web 依赖
         working-directory: apps/web
@@ -152,14 +151,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -d "apps/web/dist" ]; then
-            test -n "$(find apps/web/dist -type f | head -n 1)"
-          else
-            echo "[ERROR] apps/web/dist 不存在"
-            exit 1
-          fi
+          test -d "apps/web/dist"
+          test -n "$(find apps/web/dist -type f | head -n 1)"
 
-      - name: 生成验证报告
+      - name: 生成验证报告和通过标记
         run: |
           set -euo pipefail
 
@@ -174,7 +169,11 @@ jobs:
           ## Target Ref
           ${TARGET_REF}
 
+          ## Workflow Version
+          ${WORKFLOW_VERSION}
+
           ## Checks
+          - 03 build marker: PASSED
           - Core files and structure: PASSED
           - Illegal root directories: PASSED
           - Probe files cleanup: PASSED
@@ -190,6 +189,7 @@ jobs:
           verify passed
           feature_id: ${FEATURE_ID}
           target_ref: ${TARGET_REF}
+          workflow_version: ${WORKFLOW_VERSION}
           verified_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
           EOF
 
@@ -211,6 +211,6 @@ jobs:
 
       - name: 输出下一步
         run: |
+          set -euo pipefail
           echo "04-verify 完成。"
-          echo "如果通过，下一步运行 06-release。"
-          echo "如果失败，下一步运行 05-auto-fix，target_ref 填：${TARGET_REF}"
+          echo "下一步运行 06-release。"
