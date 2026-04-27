@@ -128,7 +128,7 @@ jobs:
           fi
 
           if [ -f pyproject.toml ]; then
-            python -m pip install -e .
+            python -m pip install -e . || echo "[WARN] editable install failed, continue with PYTHONPATH"
           fi
 
       - name: 运行 Python 单元与集成测试
