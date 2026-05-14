@@ -11,6 +11,7 @@ dependencies = [
     "uvicorn==0.34.0",
     "python-multipart==0.0.20",
     "pydantic==2.12.5",
+    "psycopg[binary]==3.2.10",
 ]
 
 [project.optional-dependencies]
@@ -21,3 +22,13 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: run slower smoke-style checks",
+    "integration: run integration coverage for end-to-end API flows",
+    "unit: run isolated unit tests",
+    "db: run persistence-related tests",
+    "anyio: run async tests through the anyio plugin",
+]

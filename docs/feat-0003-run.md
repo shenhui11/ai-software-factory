@@ -12,6 +12,10 @@ make install
 make run-backend
 ```
 
+```bash
+make run-frontend
+```
+
 ## Test
 
 ```bash

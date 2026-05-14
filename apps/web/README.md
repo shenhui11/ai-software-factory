@@ -1,15 +1,25 @@
-# Web MVP
+# Web 端 MVP
 
-## Install
+## 安装
 
 ```bash
 npm install
 ```
 
-## Run
+## 启动
 
 ```bash
 npm run dev
 ```
 
-Set `VITE_API_BASE_URL` if the backend is not running on `http://localhost:8000`.
+默认开发模式下，Vite 会把 `/api`、`/admin` 和 `/health` 代理到 `http://127.0.0.1:8000`。
+
+如果前端通过端口映射对外访问，例如页面地址是 `http://47.101.217.218:62721/`，而后端服务实际监听在宿主机 `0.0.0.0:8000`，开发态应保持 `VITE_API_BASE_URL` 不配置，让浏览器请求先进入 Vite，再由 Vite 代理到本机 `8000`。
+
+如果后端不在这个地址，启动前请设置：
+
+```bash
+VITE_API_BASE_URL=http://你的后端地址:8000 npm run dev
+```
+
+如果页面是通过局域网地址访问，例如 `http://192.168.21.109:5173/`，而 `VITE_API_BASE_URL` 仍然配置成 `http://127.0.0.1:8000` 或 `http://localhost:8000`，前端现在会自动把主机名替换成当前页面的主机名，并继续使用 `8000` 端口，避免浏览器去请求访问者本机的回环地址。

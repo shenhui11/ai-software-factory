@@ -5,6 +5,12 @@ install:
 run-backend:
 	uvicorn apps.backend.main:app --host 0.0.0.0 --port 8000
 
+run-frontend:
+	cd apps/web && npm run dev -- --host 0.0.0.0 --port 5173
+
+restart-dev:
+	bash apps/scripts/restart-dev.sh
+
 test:
 	pytest -q
 

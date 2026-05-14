@@ -7,6 +7,7 @@ source_of_truth:
 
 acceptance_criteria:
   AC-01: 用户可以创建小说项目，并配置题材、篇幅、模板、总纲、角色设定、世界观信息。
+  AC-01A: 用户可以在创建项目时让系统基于项目名称与已有字段自动生成或补全总纲摘要、角色卡、世界观规则、事件摘要。
   AC-02: 用户可以发起单次续写任务，且系统限制单次最多生成 10 章。
   AC-03: 每一章必须生成且仅展示 3 个剧情走向方案供后续评分。
   AC-04: 系统必须使用资深主编 Agent 对 3 个剧情走向方案进行评分，并选择最高分方案进入正文生成。
@@ -17,10 +18,12 @@ acceptance_criteria:
   AC-09: 若单章 5 次回流后仍未达到 8.0，系统必须输出最高分版本，并标记为“建议人工复核”。
   AC-10: 用户可以在人工确认模式下逐章决定是否采纳生成结果。
   AC-11: 用户可以在全自动模式下连续生成多章内容，直到任务完成或达到 10 章上限。
-  AC-12: 用户可以对已生成正文的任意段落发起重写或扩写，并查看差异对比结果。
-  AC-13: 系统必须具备基础结构化记忆能力，用于维持章节续写过程中的角色、世界观、事件和摘要一致性。
-  AC-14: 后台必须支持模板审核、会员套餐配置、免费章节额度与月度额度管理、订单管理、手动调额。
-  AC-15: 系统必须支持敏感内容过滤、版权声明展示和任务日志留存。
+  AC-12: 用户可以对已生成正文的任意段落发起重写、扩写或去除，并查看差异对比结果。
+  AC-13: 系统必须在章节详情页关键按钮点击后提供可见的处理中、成功、失败反馈，并在处理中阻止重复点击。
+  AC-14: 系统必须具备结构化记忆能力，用于维持章节续写过程中的角色、世界观、事件、时间线、伏笔和摘要一致性；生成前必须按章节相关性装配上下文，生成后必须回写新增事实。
+  AC-14A: 系统必须支持题材配置扩展，新增题材时不应要求重构项目创建主流程。
+  AC-15: 后台必须支持模板审核、会员套餐配置、免费章节额度与月度额度管理、订单管理、手动调额。
+  AC-16: 系统必须支持敏感内容过滤、版权声明展示和任务日志留存。
 
 test_cases:
   - id: TC-001
@@ -40,6 +43,24 @@ test_cases:
       - 项目详情中完整保存输入字段
     acceptance_criteria:
       - AC-01
+
+  - id: TC-001A
+    title: 根据项目名称与已有字段生成或补全项目基础设定
+    type: integration
+    priority: P0
+    category: 核心功能路径
+    preconditions:
+      - 创作者用户已登录
+      - 可用模板存在
+    steps:
+      - 调用项目基础设定生成接口，提交项目名称、题材与部分已填写字段
+      - 查看返回的摘要、角色卡、世界规则、事件摘要
+    expected_results:
+      - 返回总纲摘要、角色卡、世界规则、事件摘要
+      - 已填写字段被保留或增强，缺失字段被补全
+      - 输出可直接回填到项目创建表单
+    acceptance_criteria:
+      - AC-01A
 
   - id: TC-002
     title: 发起人工确认模式续写任务并限制章数为 1 到 10
@@ -82,7 +103,7 @@ test_cases:
     acceptance_criteria:
       - AC-02
       - AC-11
-      - AC-13
+      - AC-14
 
   - id: TC-004
     title: 每章固定生成且仅生成 3 个剧情走向方案
@@ -293,6 +314,62 @@ test_cases:
       - AC-12
 
   - id: TC-016
+    title: 段落去除返回去除结果、diff 和一致性提示
+    type: integration
+    priority: P1
+    category: 核心功能路径
+    preconditions:
+      - 章节已存在最终正文
+    steps:
+      - 对指定段落发起去除
+      - 查询去除结果
+    expected_results:
+      - 返回原文、去除后的正文、差异对比结果
+      - 返回上下文一致性检查提示
+      - 去除结果与章节关联保存
+    acceptance_criteria:
+      - AC-12
+
+  - id: TC-017
+    title: 章节详情关键按钮点击后显示处理中反馈并阻止重复点击
+    type: e2e
+    priority: P0
+    category: 交互反馈
+    preconditions:
+      - 章节详情页已打开
+      - 当前章节存在可操作按钮
+    steps:
+      - 点击“选用走向”或“保存正文修改”等关键按钮
+      - 在请求未完成前再次尝试点击同一按钮
+      - 等待请求成功返回
+    expected_results:
+      - 按钮立即进入禁用态
+      - 界面显示对应动作的处理中反馈
+      - 重复点击不会触发第二次请求
+      - 完成后显示成功反馈并刷新对应内容
+    acceptance_criteria:
+      - AC-13
+
+  - id: TC-018
+    title: 章节详情关键按钮失败时显示错误反馈并允许重试
+    type: e2e
+    priority: P1
+    category: 交互反馈
+    preconditions:
+      - 章节详情页已打开
+      - 可模拟关键操作失败
+    steps:
+      - 点击“重生成正文”或“整章重写”等关键按钮
+      - 令接口返回失败
+      - 观察界面反馈并再次点击重试
+    expected_results:
+      - 请求中显示处理中反馈
+      - 失败后显示失败反馈
+      - 按钮解除禁用，可再次重试
+    acceptance_criteria:
+      - AC-13
+
+  - id: TC-019
     title: 结构化记忆在章节完成后回写并被下一章消费
     type: integration
     priority: P0
@@ -304,13 +381,31 @@ test_cases:
       - 启动第 N+1 章生成
       - 检查下一章 Agent 输入上下文摘要
     expected_results:
-      - 记忆中更新全书摘要、角色信息、世界观、事件摘要、最新章节索引
-      - 下一章输入包含更新后的结构化记忆
+      - 记忆中更新全书摘要、角色信息、世界观、事件摘要、时间线、伏笔/坑点、重大事件、最新章节索引
+      - 下一章输入包含按相关性筛选后的结构化记忆
       - 不出现读取旧版本记忆的情况
     acceptance_criteria:
-      - AC-13
+      - AC-14
 
-  - id: TC-017
+  - id: TC-019A
+    title: 新增题材配置后项目创建与基础设定生成仍可正常工作
+    type: integration
+    priority: P1
+    category: 扩展能力
+    preconditions:
+      - 系统已新增至少一个首期之外题材
+    steps:
+      - 选择新增题材创建项目
+      - 调用项目基础设定生成接口
+      - 查询项目详情
+    expected_results:
+      - 项目创建成功
+      - 基础设定生成成功
+      - 后续查询与续写流程不因新增题材失败
+    acceptance_criteria:
+      - AC-14A
+
+  - id: TC-020
     title: 普通创作者无法访问后台模板与额度管理接口
     type: integration
     priority: P0
@@ -325,9 +420,9 @@ test_cases:
       - 返回 403 或等效拒绝响应
       - 不泄露后台数据
     acceptance_criteria:
-      - AC-14
+      - AC-15
 
-  - id: TC-018
+  - id: TC-021
     title: 管理员可审核模板、管理额度、查看订单与手动调额记录
     type: e2e
     priority: P1
@@ -344,9 +439,9 @@ test_cases:
       - 套餐、免费额度、月度额度、订单信息可查询
       - 手动调额成功且存在审计记录
     acceptance_criteria:
-      - AC-14
+      - AC-15
 
-  - id: TC-019
+  - id: TC-022
     title: 额度不足时拒绝创建续写任务并返回 QUOTA_EXCEEDED
     type: integration
     priority: P0
@@ -360,9 +455,9 @@ test_cases:
       - 返回错误码 QUOTA_EXCEEDED
       - 不创建任务记录，不扣减额度
     acceptance_criteria:
-      - AC-14
+      - AC-15
 
-  - id: TC-020
+  - id: TC-023
     title: 同一项目存在运行中任务时拒绝重复发起并返回 TASK_CONFLICT
     type: integration
     priority: P0
@@ -378,7 +473,7 @@ test_cases:
     acceptance_criteria:
       - AC-02
 
-  - id: TC-021
+  - id: TC-024
     title: 请求连续生成 11 章时被拒绝
     type: unit
     priority: P0
@@ -393,7 +488,7 @@ test_cases:
     acceptance_criteria:
       - AC-02
 
-  - id: TC-022
+  - id: TC-025
     title: 内容安全命中时阻断输出并返回 CONTENT_BLOCKED
     type: integration
     priority: P0
@@ -409,9 +504,9 @@ test_cases:
       - 返回 CONTENT_BLOCKED
       - 记录命中策略与日志
     acceptance_criteria:
-      - AC-15
+      - AC-16
 
-  - id: TC-023
+  - id: TC-026
     title: 页面或接口可查询任务日志并展示版权声明配置
     type: integration
     priority: P1
@@ -426,9 +521,9 @@ test_cases:
       - 可查看任务状态变化与关键执行日志
       - 可查看版权声明内容
     acceptance_criteria:
-      - AC-15
+      - AC-16
 
-  - id: TC-024
+  - id: TC-027
     title: Agent 超时后进行有限技术重试，超限后任务失败并记录 request_id
     type: integration
     priority: P1
@@ -443,9 +538,9 @@ test_cases:
       - 超过重试上限后任务失败
       - 日志包含 request_id、模型名、阶段、输入摘要
     acceptance_criteria:
-      - AC-15
+      - AC-16
 
-  - id: TC-025
+  - id: TC-028
     title: 系统任务执行器专用接口不能被普通外部身份直接调用
     type: integration
     priority: P1
@@ -458,11 +553,13 @@ test_cases:
       - 请求被拒绝
       - 不发生任务状态变更
     acceptance_criteria:
-      - AC-14
+      - AC-15
 
 traceability_matrix:
   AC-01:
     - TC-001
+  AC-01A:
+    - TC-001A
   AC-02:
     - TC-002
     - TC-003
@@ -496,15 +593,21 @@ traceability_matrix:
   AC-12:
     - TC-014
     - TC-015
-  AC-13:
-    - TC-003
     - TC-016
-  AC-14:
+  AC-13:
     - TC-017
     - TC-018
+  AC-14:
+    - TC-003
     - TC-019
-    - TC-025
+  AC-14A:
+    - TC-019A
   AC-15:
+    - TC-020
+    - TC-021
     - TC-022
-    - TC-023
-    - TC-024
+    - TC-028
+  AC-16:
+    - TC-025
+    - TC-026
+    - TC-027
