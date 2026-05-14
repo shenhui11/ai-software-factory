@@ -1,9 +1,16 @@
 import os
 import sys
+<<<<<<< HEAD
 from collections.abc import Generator
 
 import anyio
 import httpx
+=======
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+from httpx import ASGITransport, AsyncClient
+>>>>>>> new-origin/main
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,6 +22,7 @@ from apps.backend.main import app, auth_store
 from apps.backend.store import InMemoryStore, store
 
 
+<<<<<<< HEAD
 class SyncASGIClient:
     def __init__(self, app_instance) -> None:
         self._app = app_instance
@@ -122,3 +130,12 @@ def admin_headers(headers):
         **headers,
         "Authorization": f"Bearer {token}",
     }
+=======
+@pytest.fixture()
+async def client() -> AsyncIterator[AsyncClient]:
+    main_module.store = InMemoryStore()
+    main_module.service = main_module.NovelService(main_module.store)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+        yield async_client
+>>>>>>> new-origin/main

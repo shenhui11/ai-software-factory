@@ -188,6 +188,7 @@ async def change_password(payload: AuthPasswordChangeRequest, request: Request) 
 
 
 @app.post("/api/projects")
+<<<<<<< HEAD
 async def create_project(payload: ProjectCreate, request: Request) -> dict[str, Any]:
     user = require_user(request)
     print(
@@ -253,6 +254,15 @@ async def get_project(project_id: str, request: Request) -> dict[str, Any]:
     user = require_user(request)
     store.migrate_user_state_alias(user.id, user.username)
     project = await run_in_threadpool(service.get_project, user.id, project_id)
+=======
+async def create_project(payload: ProjectCreate) -> dict[str, Any]:
+    return ok(service.create_project(payload))
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: str) -> dict[str, Any]:
+    project = service.get_project(project_id)
+>>>>>>> new-origin/main
     return ok(
         {
             "project": project,
@@ -270,6 +280,7 @@ async def delete_project(project_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/projects/{project_id}/chapters/generate")
+<<<<<<< HEAD
 async def create_task(project_id: str, payload: TaskCreateRequest, request: Request) -> dict[str, Any]:
     user = require_user(request)
     return ok(await run_in_threadpool(service.create_task, user.id, project_id, payload))
@@ -288,6 +299,21 @@ async def get_task(project_id: str, task_id: str, request: Request) -> dict[str,
     task = next((task for task in project.tasks if task.id == task_id), None)
     if task is None:
       raise DomainError("INVALID_ARGUMENT", "任务不存在", {"task_id": task_id})
+=======
+async def create_task(project_id: str, payload: TaskCreateRequest) -> dict[str, Any]:
+    return ok(service.create_task(project_id, payload))
+
+
+@app.post("/api/projects/{project_id}/tasks/{task_id}/run")
+async def run_task(project_id: str, task_id: str) -> dict[str, Any]:
+    return ok(service.run_task(project_id, task_id))
+
+
+@app.get("/api/projects/{project_id}/tasks/{task_id}")
+async def get_task(project_id: str, task_id: str) -> dict[str, Any]:
+    project = service.get_project(project_id)
+    task = next(task for task in project.tasks if task.id == task_id)
+>>>>>>> new-origin/main
     chapters = [chapter for chapter in project.chapters if chapter.id in task.chapter_ids]
     return ok({"task": task, "chapters": chapters, "memory": project.memory})
 
@@ -307,6 +333,7 @@ async def clear_active_task(project_id: str, request: Request) -> dict[str, Any]
 
 
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/confirm")
+<<<<<<< HEAD
 async def confirm_chapter(project_id: str, chapter_id: str, request: Request) -> dict[str, Any]:
     user = require_user(request)
     return ok(await run_in_threadpool(service.confirm_chapter, user.id, project_id, chapter_id))
@@ -396,10 +423,15 @@ async def delete_chapter(project_id: str, chapter_id: str, request: Request) -> 
     user = require_user(request)
     project = await run_in_threadpool(service.delete_chapter, user.id, project_id, chapter_id)
     return ok({"project": project})
+=======
+async def confirm_chapter(project_id: str, chapter_id: str) -> dict[str, Any]:
+    return ok(service.confirm_chapter(project_id, chapter_id))
+>>>>>>> new-origin/main
 
 
 @app.get("/api/chapters/{chapter_id}/outline-options")
 async def get_outline_options(chapter_id: str) -> dict[str, Any]:
+<<<<<<< HEAD
     chapter = await run_in_threadpool(
         lambda: next(
             chapter
@@ -407,12 +439,20 @@ async def get_outline_options(chapter_id: str) -> dict[str, Any]:
             for chapter in project.chapters
             if chapter.id == chapter_id
         )
+=======
+    chapter = next(
+        chapter
+        for project in store.projects.values()
+        for chapter in project.chapters
+        if chapter.id == chapter_id
+>>>>>>> new-origin/main
     )
     return ok(chapter.outline_options)
 
 
 @app.get("/api/chapters/{chapter_id}/drafts")
 async def get_drafts(chapter_id: str) -> dict[str, Any]:
+<<<<<<< HEAD
     chapter = await run_in_threadpool(
         lambda: next(
             chapter
@@ -420,6 +460,13 @@ async def get_drafts(chapter_id: str) -> dict[str, Any]:
             for chapter in project.chapters
             if chapter.id == chapter_id
         )
+=======
+    chapter = next(
+        chapter
+        for project in store.projects.values()
+        for chapter in project.chapters
+        if chapter.id == chapter_id
+>>>>>>> new-origin/main
     )
     return ok(
         {
@@ -431,6 +478,7 @@ async def get_drafts(chapter_id: str) -> dict[str, Any]:
     )
 
 
+<<<<<<< HEAD
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/rewrite")
 async def rewrite_chapter(project_id: str, chapter_id: str, payload: ChapterTransformRequest, request: Request) -> dict[str, Any]:
     user = require_user(request)
@@ -462,6 +510,25 @@ async def create_template(payload: dict[str, Any], request: Request) -> dict[str
     genre = str(payload.get("genre", "")).strip() or (genres[0] if genres else "fantasy")
     if not genres:
         genres = [genre]
+=======
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/paragraph-rewrite")
+async def rewrite_paragraph(project_id: str, chapter_id: str, payload: RewriteRequest) -> dict[str, Any]:
+    return ok(service.rewrite_paragraph(project_id, chapter_id, payload))
+
+
+@app.post("/api/projects/{project_id}/chapters/{chapter_id}/paragraph-expand")
+async def expand_paragraph(project_id: str, chapter_id: str, payload: RewriteRequest) -> dict[str, Any]:
+    return ok(service.expand_paragraph(project_id, chapter_id, payload))
+
+
+@app.get("/api/templates")
+async def list_templates() -> dict[str, Any]:
+    return ok(service.list_templates())
+
+
+@app.post("/api/templates")
+async def create_template(payload: dict[str, Any]) -> dict[str, Any]:
+>>>>>>> new-origin/main
     template = Template(
         id=new_id("template"),
         name=payload["name"],
@@ -485,6 +552,7 @@ async def update_template(template_id: str, payload: dict[str, Any], request: Re
 
 
 @app.get("/api/membership/quotas")
+<<<<<<< HEAD
 async def get_quotas(request: Request) -> dict[str, Any]:
     user = require_user(request)
     store.migrate_user_state_alias(user.id, user.username)
@@ -619,12 +687,49 @@ async def admin_update_order(order_id: str, payload: OrderUpsertRequest, request
 @app.get("/admin/safety/policies")
 async def admin_safety_policies(request: Request) -> dict[str, Any]:
     require_admin(request)
+=======
+async def get_quotas() -> dict[str, Any]:
+    return ok({"quota": store.user_quota, "plan": list(store.membership_plans.values())[0]})
+
+
+@app.get("/admin/templates")
+async def admin_templates() -> dict[str, Any]:
+    return ok(service.list_templates())
+
+
+@app.post("/admin/templates/{template_id}/publish")
+async def admin_publish_template(template_id: str) -> dict[str, Any]:
+    return ok(service.publish_template(template_id))
+
+
+@app.get("/admin/memberships")
+async def admin_memberships() -> dict[str, Any]:
+    return ok({"plans": list(store.membership_plans.values()), "quota": store.user_quota})
+
+
+@app.post("/admin/quotas/adjust")
+async def admin_adjust_quota(payload: QuotaAdjustRequest) -> dict[str, Any]:
+    return ok(service.adjust_quota(payload.free_delta, payload.monthly_delta))
+
+
+@app.get("/admin/orders")
+async def admin_orders() -> dict[str, Any]:
+    return ok(list(store.orders.values()))
+
+
+@app.get("/admin/safety/policies")
+async def admin_safety_policies() -> dict[str, Any]:
+>>>>>>> new-origin/main
     return ok(store.safety_policy)
 
 
 @app.patch("/admin/safety/policies/{policy_id}")
+<<<<<<< HEAD
 async def admin_update_safety_policy(policy_id: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
     require_admin(request)
+=======
+async def admin_update_safety_policy(policy_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+>>>>>>> new-origin/main
     if store.safety_policy.id != policy_id:
         raise DomainError("INVALID_ARGUMENT", "策略不存在", {"policy_id": policy_id})
     store.safety_policy.blocked_terms = payload.get("blocked_terms", store.safety_policy.blocked_terms)
@@ -638,6 +743,10 @@ async def admin_update_safety_policy(policy_id: str, payload: dict[str, Any], re
 
 
 @app.get("/admin/logs/tasks")
+<<<<<<< HEAD
 async def admin_task_logs(request: Request) -> dict[str, Any]:
     require_admin(request)
+=======
+async def admin_task_logs() -> dict[str, Any]:
+>>>>>>> new-origin/main
     return ok(store.audit_logs)
