@@ -47,17 +47,17 @@ async def domain_error_handler(_: Request, error: DomainError) -> JSONResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, Any]:
+async def health() -> dict[str, Any]:
     return ok({"status": "ok"})
 
 
 @app.post("/api/projects")
-def create_project(payload: ProjectCreate) -> dict[str, Any]:
+async def create_project(payload: ProjectCreate) -> dict[str, Any]:
     return ok(service.create_project(payload))
 
 
 @app.get("/api/projects/{project_id}")
-def get_project(project_id: str) -> dict[str, Any]:
+async def get_project(project_id: str) -> dict[str, Any]:
     project = service.get_project(project_id)
     return ok(
         {
@@ -69,17 +69,17 @@ def get_project(project_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/projects/{project_id}/chapters/generate")
-def create_task(project_id: str, payload: TaskCreateRequest) -> dict[str, Any]:
+async def create_task(project_id: str, payload: TaskCreateRequest) -> dict[str, Any]:
     return ok(service.create_task(project_id, payload))
 
 
 @app.post("/api/projects/{project_id}/tasks/{task_id}/run")
-def run_task(project_id: str, task_id: str) -> dict[str, Any]:
+async def run_task(project_id: str, task_id: str) -> dict[str, Any]:
     return ok(service.run_task(project_id, task_id))
 
 
 @app.get("/api/projects/{project_id}/tasks/{task_id}")
-def get_task(project_id: str, task_id: str) -> dict[str, Any]:
+async def get_task(project_id: str, task_id: str) -> dict[str, Any]:
     project = service.get_project(project_id)
     task = next(task for task in project.tasks if task.id == task_id)
     chapters = [chapter for chapter in project.chapters if chapter.id in task.chapter_ids]
@@ -87,12 +87,12 @@ def get_task(project_id: str, task_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/confirm")
-def confirm_chapter(project_id: str, chapter_id: str) -> dict[str, Any]:
+async def confirm_chapter(project_id: str, chapter_id: str) -> dict[str, Any]:
     return ok(service.confirm_chapter(project_id, chapter_id))
 
 
 @app.get("/api/chapters/{chapter_id}/outline-options")
-def get_outline_options(chapter_id: str) -> dict[str, Any]:
+async def get_outline_options(chapter_id: str) -> dict[str, Any]:
     chapter = next(
         chapter
         for project in store.projects.values()
@@ -103,7 +103,7 @@ def get_outline_options(chapter_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/chapters/{chapter_id}/drafts")
-def get_drafts(chapter_id: str) -> dict[str, Any]:
+async def get_drafts(chapter_id: str) -> dict[str, Any]:
     chapter = next(
         chapter
         for project in store.projects.values()
@@ -121,22 +121,22 @@ def get_drafts(chapter_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/paragraph-rewrite")
-def rewrite_paragraph(project_id: str, chapter_id: str, payload: RewriteRequest) -> dict[str, Any]:
+async def rewrite_paragraph(project_id: str, chapter_id: str, payload: RewriteRequest) -> dict[str, Any]:
     return ok(service.rewrite_paragraph(project_id, chapter_id, payload))
 
 
 @app.post("/api/projects/{project_id}/chapters/{chapter_id}/paragraph-expand")
-def expand_paragraph(project_id: str, chapter_id: str, payload: RewriteRequest) -> dict[str, Any]:
+async def expand_paragraph(project_id: str, chapter_id: str, payload: RewriteRequest) -> dict[str, Any]:
     return ok(service.expand_paragraph(project_id, chapter_id, payload))
 
 
 @app.get("/api/templates")
-def list_templates() -> dict[str, Any]:
+async def list_templates() -> dict[str, Any]:
     return ok(service.list_templates())
 
 
 @app.post("/api/templates")
-def create_template(payload: dict[str, Any]) -> dict[str, Any]:
+async def create_template(payload: dict[str, Any]) -> dict[str, Any]:
     template = Template(
         id=new_id("template"),
         name=payload["name"],
@@ -152,42 +152,42 @@ def create_template(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.get("/api/membership/quotas")
-def get_quotas() -> dict[str, Any]:
+async def get_quotas() -> dict[str, Any]:
     return ok({"quota": store.user_quota, "plan": list(store.membership_plans.values())[0]})
 
 
 @app.get("/admin/templates")
-def admin_templates() -> dict[str, Any]:
+async def admin_templates() -> dict[str, Any]:
     return ok(service.list_templates())
 
 
 @app.post("/admin/templates/{template_id}/publish")
-def admin_publish_template(template_id: str) -> dict[str, Any]:
+async def admin_publish_template(template_id: str) -> dict[str, Any]:
     return ok(service.publish_template(template_id))
 
 
 @app.get("/admin/memberships")
-def admin_memberships() -> dict[str, Any]:
+async def admin_memberships() -> dict[str, Any]:
     return ok({"plans": list(store.membership_plans.values()), "quota": store.user_quota})
 
 
 @app.post("/admin/quotas/adjust")
-def admin_adjust_quota(payload: QuotaAdjustRequest) -> dict[str, Any]:
+async def admin_adjust_quota(payload: QuotaAdjustRequest) -> dict[str, Any]:
     return ok(service.adjust_quota(payload.free_delta, payload.monthly_delta))
 
 
 @app.get("/admin/orders")
-def admin_orders() -> dict[str, Any]:
+async def admin_orders() -> dict[str, Any]:
     return ok(list(store.orders.values()))
 
 
 @app.get("/admin/safety/policies")
-def admin_safety_policies() -> dict[str, Any]:
+async def admin_safety_policies() -> dict[str, Any]:
     return ok(store.safety_policy)
 
 
 @app.patch("/admin/safety/policies/{policy_id}")
-def admin_update_safety_policy(policy_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+async def admin_update_safety_policy(policy_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if store.safety_policy.id != policy_id:
         raise DomainError("INVALID_ARGUMENT", "policy not found", {"policy_id": policy_id})
     store.safety_policy.blocked_terms = payload.get("blocked_terms", store.safety_policy.blocked_terms)
@@ -200,5 +200,5 @@ def admin_update_safety_policy(policy_id: str, payload: dict[str, Any]) -> dict[
 
 
 @app.get("/admin/logs/tasks")
-def admin_task_logs() -> dict[str, Any]:
+async def admin_task_logs() -> dict[str, Any]:
     return ok(store.audit_logs)

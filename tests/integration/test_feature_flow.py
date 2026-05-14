@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+
+pytestmark = pytest.mark.anyio
 
 def make_project_payload(genre: str = "fantasy") -> dict[str, object]:
     return {
@@ -15,33 +19,35 @@ def make_project_payload(genre: str = "fantasy") -> dict[str, object]:
     }
 
 
-def test_create_project_success(client) -> None:
-    response = client.post("/api/projects", json=make_project_payload())
+async def test_create_project_success(client) -> None:
+    response = await client.post("/api/projects", json=make_project_payload())
     assert response.status_code == 200
     project = response.json()["data"]
-    detail = client.get(f"/api/projects/{project['id']}")
+    detail = await client.get(f"/api/projects/{project['id']}")
     body = detail.json()["data"]
     assert body["project"]["genre"] == "fantasy"
     assert body["project"]["memory"]["character_cards"] == ["Hero", "Rival"]
 
 
-def test_reject_more_than_ten_chapters(client) -> None:
-    project = client.post("/api/projects", json=make_project_payload()).json()["data"]
-    response = client.post(
+async def test_reject_more_than_ten_chapters(client) -> None:
+    project = (await client.post("/api/projects", json=make_project_payload())).json()["data"]
+    response = await client.post(
         f"/api/projects/{project['id']}/chapters/generate",
         json={"mode": "auto", "chapter_count": 11, "start_chapter_index": 1},
     )
     assert response.status_code == 422
 
 
-def test_auto_flow_returns_three_options_and_highest_selected(client) -> None:
-    project = client.post("/api/projects", json=make_project_payload()).json()["data"]
-    task = client.post(
-        f"/api/projects/{project['id']}/chapters/generate",
-        json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+async def test_auto_flow_returns_three_options_and_highest_selected(client) -> None:
+    project = (await client.post("/api/projects", json=make_project_payload())).json()["data"]
+    task = (
+        await client.post(
+            f"/api/projects/{project['id']}/chapters/generate",
+            json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+        )
     ).json()["data"]
-    run_result = client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
-    task_detail = client.get(f"/api/projects/{project['id']}/tasks/{task['id']}").json()["data"]
+    run_result = await client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
+    task_detail = (await client.get(f"/api/projects/{project['id']}/tasks/{task['id']}")).json()["data"]
     assert run_result.status_code == 200
     chapter = task_detail["chapters"][0]
     assert len(chapter["outline_options"]) == 3
@@ -52,30 +58,34 @@ def test_auto_flow_returns_three_options_and_highest_selected(client) -> None:
     assert chapter["drafts"][0]["issue_summary"]
 
 
-def test_manual_mode_waits_for_confirmation_and_can_continue(client) -> None:
-    project = client.post("/api/projects", json=make_project_payload()).json()["data"]
-    task = client.post(
-        f"/api/projects/{project['id']}/chapters/generate",
-        json={"mode": "manual", "chapter_count": 2, "start_chapter_index": 1},
+async def test_manual_mode_waits_for_confirmation_and_can_continue(client) -> None:
+    project = (await client.post("/api/projects", json=make_project_payload())).json()["data"]
+    task = (
+        await client.post(
+            f"/api/projects/{project['id']}/chapters/generate",
+            json={"mode": "manual", "chapter_count": 2, "start_chapter_index": 1},
+        )
     ).json()["data"]
-    client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
-    waiting = client.get(f"/api/projects/{project['id']}/tasks/{task['id']}").json()["data"]
+    await client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
+    waiting = (await client.get(f"/api/projects/{project['id']}/tasks/{task['id']}")).json()["data"]
     assert waiting["task"]["status"] == "waiting_user_confirm"
     first_chapter = waiting["chapters"][0]
-    confirm = client.post(f"/api/projects/{project['id']}/chapters/{first_chapter['id']}/confirm")
+    confirm = await client.post(f"/api/projects/{project['id']}/chapters/{first_chapter['id']}/confirm")
     assert confirm.status_code == 200
-    after = client.get(f"/api/projects/{project['id']}/tasks/{task['id']}").json()["data"]
+    after = (await client.get(f"/api/projects/{project['id']}/tasks/{task['id']}")).json()["data"]
     assert len(after["chapters"]) == 2
 
 
-def test_horror_flow_caps_rewrites_at_five_and_marks_manual_review(client) -> None:
-    project = client.post("/api/projects", json=make_project_payload(genre="horror")).json()["data"]
-    task = client.post(
-        f"/api/projects/{project['id']}/chapters/generate",
-        json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+async def test_horror_flow_caps_rewrites_at_five_and_marks_manual_review(client) -> None:
+    project = (await client.post("/api/projects", json=make_project_payload(genre="horror"))).json()["data"]
+    task = (
+        await client.post(
+            f"/api/projects/{project['id']}/chapters/generate",
+            json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+        )
     ).json()["data"]
-    client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
-    detail = client.get(f"/api/projects/{project['id']}/tasks/{task['id']}").json()["data"]
+    await client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
+    detail = (await client.get(f"/api/projects/{project['id']}/tasks/{task['id']}")).json()["data"]
     chapter = detail["chapters"][0]
     drafts = chapter["drafts"]
     assert len(drafts) == 6
@@ -85,20 +95,24 @@ def test_horror_flow_caps_rewrites_at_five_and_marks_manual_review(client) -> No
     assert selected["final_score"] == max(draft["final_score"] for draft in drafts)
 
 
-def test_paragraph_rewrite_and_expand_return_diff(client) -> None:
-    project = client.post("/api/projects", json=make_project_payload()).json()["data"]
-    task = client.post(
-        f"/api/projects/{project['id']}/chapters/generate",
-        json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+async def test_paragraph_rewrite_and_expand_return_diff(client) -> None:
+    project = (await client.post("/api/projects", json=make_project_payload())).json()["data"]
+    task = (
+        await client.post(
+            f"/api/projects/{project['id']}/chapters/generate",
+            json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+        )
     ).json()["data"]
-    client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
-    chapter = client.get(f"/api/projects/{project['id']}/tasks/{task['id']}").json()["data"]["chapters"][0]
+    await client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
+    chapter = (
+        await client.get(f"/api/projects/{project['id']}/tasks/{task['id']}")
+    ).json()["data"]["chapters"][0]
     draft = [item for item in chapter["drafts"] if item["selected"]][0]
-    rewrite = client.post(
+    rewrite = await client.post(
         f"/api/projects/{project['id']}/chapters/{chapter['id']}/paragraph-rewrite",
         json={"paragraph": draft["content"], "instruction": "Tighten the pacing"},
     )
-    expand = client.post(
+    expand = await client.post(
         f"/api/projects/{project['id']}/chapters/{chapter['id']}/paragraph-expand",
         json={"paragraph": draft["content"], "instruction": "Add more sensory detail"},
     )
@@ -108,24 +122,26 @@ def test_paragraph_rewrite_and_expand_return_diff(client) -> None:
     assert expand.json()["data"]["diff"]
 
 
-def test_admin_and_compliance_endpoints_return_data(client) -> None:
-    project = client.post("/api/projects", json=make_project_payload()).json()["data"]
-    task = client.post(
-        f"/api/projects/{project['id']}/chapters/generate",
-        json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+async def test_admin_and_compliance_endpoints_return_data(client) -> None:
+    project = (await client.post("/api/projects", json=make_project_payload())).json()["data"]
+    task = (
+        await client.post(
+            f"/api/projects/{project['id']}/chapters/generate",
+            json={"mode": "auto", "chapter_count": 1, "start_chapter_index": 1},
+        )
     ).json()["data"]
-    client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
-    assert client.get("/admin/templates").status_code == 200
-    assert client.get("/admin/memberships").status_code == 200
-    assert client.get("/admin/orders").status_code == 200
-    assert client.get("/admin/safety/policies").status_code == 200
-    logs = client.get("/admin/logs/tasks")
+    await client.post(f"/api/projects/{project['id']}/tasks/{task['id']}/run")
+    assert (await client.get("/admin/templates")).status_code == 200
+    assert (await client.get("/admin/memberships")).status_code == 200
+    assert (await client.get("/admin/orders")).status_code == 200
+    assert (await client.get("/admin/safety/policies")).status_code == 200
+    logs = await client.get("/admin/logs/tasks")
     assert logs.status_code == 200
     assert logs.json()["data"]
 
 
-def test_blocked_content_returns_structured_error(client) -> None:
-    response = client.post(
+async def test_blocked_content_returns_structured_error(client) -> None:
+    response = await client.post(
         "/api/projects",
         json={**make_project_payload(), "summary": "A forbidden ritual starts here."},
     )

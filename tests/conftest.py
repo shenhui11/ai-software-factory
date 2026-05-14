@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
 
+from httpx import ASGITransport, AsyncClient
 import pytest
-from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -16,7 +17,9 @@ import apps.backend.main as main_module
 
 
 @pytest.fixture()
-def client() -> TestClient:
+async def client() -> AsyncIterator[AsyncClient]:
     main_module.store = InMemoryStore()
     main_module.service = main_module.NovelService(main_module.store)
-    return TestClient(app)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+        yield async_client
